@@ -1,97 +1,117 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: Introduction to Reatom
+description: A powerful reactive state management library for building anything from tiny libraries to full-blown applications
 ---
 
-## Setting up
+# Welcome to Reatom
 
-Get your documentation site up and running in minutes.
+**Reatom is the ultimate logic and state manager for small widgets and huge SPAs.**
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+A powerful reactive state management library designed to become your go-to resource for building anything from tiny libraries to full-blown applications.
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running with a counter example in minutes
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Installation" icon="download" href="/installation">
+    Install Reatom with npm, yarn, or pnpm
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Core Concepts" icon="book" href="/core/atom">
+    Learn about atoms, computed, actions, and effects
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Framework Integrations" icon="plug" href="/integrations/react">
+    Use Reatom with React, Vue, Solid, and more
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Why Reatom?
 
-Everything you need to create world-class documentation.
+Reatom provides a simple yet powerful approach to state management with explicit reactivity and excellent developer experience.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+### Key Features
 
-## Need inspiration?
+<CardGroup cols={2}>
+  <Card title="Simple Abstractions" icon="atom">
+    Only a few core primitives: `atom` and `computed`, `action` and `effect`. All other features work on top of that.
+  </Card>
+  
+  <Card title="Explicit Reactivity" icon="bolt">
+    Direct, predictable state management with atomization patterns for maximum performance. No proxies needed.
+  </Card>
+  
+  <Card title="Perfect Effects Management" icon="wand-magic-sparkles">
+    Advanced async handling with caching, retrying, and automatic cancellation using native `await` and `AbortController`.
+  </Card>
+  
+  <Card title="Excellent Debugging" icon="bug">
+    Built-in logging and immutable cause tracking for complex async flows.
+  </Card>
+  
+  <Card title="Composable Extensions" icon="puzzle-piece">
+    Enhance atoms and actions with ready-made solutions for async operations, persistence, caching, and more.
+  </Card>
+  
+  <Card title="Framework-Agnostic" icon="layer-group">
+    Adapters for React, Vue, Preact, Solid, Lit, and many more frameworks and libraries.
+  </Card>
+  
+  <Card title="Smallest Bundle" icon="feather">
+    Just [2 KB](https://bundlejs.com/?q=%40reatom%2Fcore) gzipped for the core package.
+  </Card>
+  
+  <Card title="TypeScript First" icon="code">
+    Top type inference with excellent type safety throughout the library.
+  </Card>
+</CardGroup>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Quick Example
+
+Here's a simple counter example to give you a taste of Reatom:
+
+```typescript
+import { atom, computed } from '@reatom/core'
+import { reatomComponent } from '@reatom/react'
+
+const counter = atom(0)
+const isEven = computed(() => counter() % 2 === 0)
+
+const Counter = reatomComponent(() => (
+  <section>
+    <p>
+      {counter()} is {isEven() ? 'even' : 'odd'}
+    </p>
+    <button onClick={() => counter.set(v => v + 1)}>Increment</button>
+  </section>
+))
+```
+
+<Tip>
+  The coolest thing about `reatomComponent` is that you can use reactive states (atoms) in any order without the rules of hooks!
+</Tip>
+
+## What's Next?
+
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Set up Reatom in your project
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Build your first counter app
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/core/atom">
+    Deep dive into atoms and computed
+  </Card>
+</CardGroup>
+
+## Community
+
+Join our growing community:
+
+- [GitHub](https://github.com/reatom/reatom) - Star the repo and report issues
+- [Discord](https://discord.gg/EPAKK5SNFh) - Chat with other developers
+- [Twitter](https://twitter.com/ReatomJS) - Follow for updates
+- [GitHub Discussions](https://github.com/reatom/reatom/discussions) - Ask questions and share ideas
+
+<Note>
+  Good primitive is more than a framework
+</Note>

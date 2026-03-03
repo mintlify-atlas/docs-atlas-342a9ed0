@@ -1,0 +1,345 @@
+---
+title: withChangeHook
+description: Execute a callback whenever the target atom's state changes
+---
+
+## Overview
+
+The `withChangeHook` extension executes a callback whenever the target atom's state changes. It's essential for creating stable, declarative connections between independent modules or features.
+
+The hook fires in the "Hooks" phase of Reatom's lifecycle (after Updates, before Computations), making it perfect for triggering side effects or synchronizing state across module boundaries.
+
+## Type Signature
+
+```typescript
+function withChangeHook<Target extends AtomLike>(
+  cb: (state: AtomState<Target>, prevState: undefined | AtomState<Target>) => void
+): Ext<Target>
+```
+
+## Parameters
+
+<ParamField path="cb" type="function" required>
+  Callback fired when state changes. Only fires when the state actually changes (referential inequality check via `Object.is`).
+  
+  **Parameters:**
+  - `state`: The new state value
+  - `prevState`: The previous state value (undefined on first change)
+</ParamField>
+
+## When to Use
+
+**Use `withChangeHook` when:**
+- Creating stable connections between features that shouldn't depend on each other directly
+- Triggering validation when a field's value or state changes
+- Syncing derived state in response to source state changes
+- Managing side effects like DOM updates or analytics based on state changes
+- Coordinating behavior across module boundaries without coupling them
+
+**Don't use when:**
+- In dynamic features, like from computed factories (use `take` or `effect` with `ifChanged` instead)
+- When a regular computed dependency would suffice
+- For connection/disconnection events (use `withConnectHook` instead)
+
+## Examples
+
+### Basic State Changes
+
+```typescript
+import { atom, notify } from '@reatom/core'
+import { withChangeHook } from '@reatom/core/extensions'
+
+const count = atom(0, 'count').extend(
+  withChangeHook((state, prevState) => {
+    console.log(`Count changed from ${prevState} to ${state}`)
+  })
+)
+
+count.set(1)
+notify()
+// Logs: "Count changed from 0 to 1"
+
+count.set(1)
+notify()
+// No log (state didn't change)
+
+count.set(2)
+notify()
+// Logs: "Count changed from 1 to 2"
+```
+
+### Theme Management
+
+```typescript
+import { reatomEnum } from '@reatom/core/primitives'
+
+const theme = reatomEnum(['light', 'dark', 'system']).extend(
+  withChangeHook((state, prevState) => {
+    if (prevState) {
+      document.body.classList.remove(prevState)
+    }
+    document.body.classList.add(state)
+  })
+)
+
+theme.set('dark')
+// Body class changes to 'dark'
+```
+
+### Analytics Tracking
+
+```typescript
+// In userModule.ts
+export const userAtom = atom({ id: null, name: '' }, 'user')
+
+// In analyticsModule.ts - stable cross-module connection
+import { userAtom } from './userModule'
+
+userAtom.extend(
+  withChangeHook((user, prevUser) => {
+    if (user.id !== prevUser?.id) {
+      analytics.identify(user.id, { name: user.name })
+    }
+  })
+)
+```
+
+### Form Field Validation
+
+```typescript
+const emailField = atom('', 'emailField').extend(
+  withChangeHook((email) => {
+    if (email && !isValidEmail(email)) {
+      emailError.set('Invalid email format')
+    } else {
+      emailError.set(null)
+    }
+  })
+)
+```
+
+### Sync to LocalStorage
+
+```typescript
+const preferences = atom(
+  { theme: 'light', language: 'en' },
+  'preferences'
+).extend(
+  withChangeHook((state) => {
+    localStorage.setItem('preferences', JSON.stringify(state))
+  })
+)
+```
+
+### Computed State Changes
+
+```typescript
+import { computed } from '@reatom/core'
+
+const param = atom(0, 'param')
+const doubled = computed(() => param() * 2, 'doubled').extend(
+  withChangeHook((state, prevState) => {
+    console.log(`Doubled: ${prevState} → ${state}`)
+  })
+)
+
+doubled()
+notify()
+// Logs: "Doubled: undefined → 0"
+
+param.set(5)
+notify()
+// Logs: "Doubled: 0 → 10"
+```
+
+### Type-Safe Callbacks
+
+```typescript
+import { expectTypeOf } from 'vitest'
+
+const count = atom(0, 'count').extend(
+  withChangeHook((state, prevState) => {
+    expectTypeOf(state).toBeNumber()
+    expectTypeOf(prevState).toExtend<undefined | number>()
+    
+    // TypeScript knows the types
+    const diff = state - (prevState ?? 0)
+    console.log(`Changed by ${diff}`)
+  })
+)
+```
+
+## Advanced Usage
+
+### Dynamic Hook Addition
+
+```typescript
+import { addChangeHook } from '@reatom/core/extensions'
+
+const data = atom({ value: 0 }, 'data')
+
+// Add hook dynamically
+const unsubscribe = addChangeHook(data, (state, prevState) => {
+  console.log('Data changed:', state)
+})
+
+// Remove hook when needed
+unsubscribe()
+```
+
+### Conditional Side Effects
+
+```typescript
+const user = atom<User | null>(null, 'user').extend(
+  withChangeHook((currentUser, prevUser) => {
+    // Only track login events
+    if (!prevUser && currentUser) {
+      analytics.track('user_logged_in', {
+        userId: currentUser.id,
+      })
+    }
+    
+    // Only track logout events
+    if (prevUser && !currentUser) {
+      analytics.track('user_logged_out', {
+        userId: prevUser.id,
+      })
+    }
+  })
+)
+```
+
+### Cross-Module Coordination
+
+```typescript
+// cartModule.ts
+export const cartAtom = atom([], 'cart')
+
+// notificationModule.ts
+import { cartAtom } from './cartModule'
+
+cartAtom.extend(
+  withChangeHook((items, prevItems) => {
+    if (items.length > (prevItems?.length ?? 0)) {
+      showNotification('Item added to cart')
+    }
+  })
+)
+```
+
+### Debounced Side Effects
+
+```typescript
+let timeoutId: NodeJS.Timeout
+
+const searchQuery = atom('', 'searchQuery').extend(
+  withChangeHook((query) => {
+    clearTimeout(timeoutId)
+    timeoutId = setTimeout(() => {
+      performSearch(query)
+    }, 300)
+  })
+)
+```
+
+## Comparison with Other Hooks
+
+### withChangeHook vs withCallHook
+
+```typescript
+// withChangeHook - for atom state changes
+const count = atom(0).extend(
+  withChangeHook((state) => {
+    console.log('State:', state)
+  })
+)
+
+// withCallHook - for action calls
+const increment = action(() => count.set(s => s + 1)).extend(
+  withCallHook((payload, params) => {
+    console.log('Action called with:', params)
+  })
+)
+```
+
+### withChangeHook vs withConnectHook
+
+```typescript
+// withChangeHook - fires on state changes
+const data = atom(0).extend(
+  withChangeHook((state) => {
+    console.log('Data changed:', state)
+  })
+)
+
+// withConnectHook - fires on subscription/unsubscription
+const resource = atom(0).extend(
+  withConnectHook(() => {
+    console.log('Subscribed')
+    return () => console.log('Unsubscribed')
+  })
+)
+```
+
+## Use Cases
+
+### Form Auto-Save
+
+```typescript
+const formData = atom(
+  { name: '', email: '' },
+  'formData'
+).extend(
+  withChangeHook((data) => {
+    // Auto-save to draft
+    saveDraft(data)
+  })
+)
+```
+
+### URL Sync
+
+```typescript
+const currentPage = atom(1, 'currentPage').extend(
+  withChangeHook((page) => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('page', String(page))
+    window.history.pushState({}, '', url)
+  })
+)
+```
+
+### Undo/Redo History
+
+```typescript
+const history: State[] = []
+const historyIndex = atom(0)
+
+const currentState = atom(initialState, 'currentState').extend(
+  withChangeHook((state, prevState) => {
+    if (prevState !== undefined) {
+      history.push(prevState)
+      historyIndex.set(history.length)
+    }
+  })
+)
+```
+
+### Real-time Sync
+
+```typescript
+const document = atom(initialDoc, 'document').extend(
+  withChangeHook((doc) => {
+    websocket.send({
+      type: 'document_update',
+      data: doc,
+    })
+  })
+)
+```
+
+## Related
+
+- [withCallHook](/api/extensions/with-change-hook#withcallhook) - React to action calls
+- [withConnectHook](/api/extensions/with-connect-hook) - React to subscription lifecycle
+- [addChangeHook](/api/extensions/with-change-hook#addchangehook) - Dynamically add/remove hooks

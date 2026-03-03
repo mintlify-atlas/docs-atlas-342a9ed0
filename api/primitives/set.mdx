@@ -1,0 +1,287 @@
+---
+title: reatomSet
+description: A primitive atom for managing Set state with reactive updates and convenient mutation methods
+---
+
+## Overview
+
+`reatomSet` creates an atom that manages `Set` state with built-in methods for common set operations like `add`, `delete`, `toggle`, and `clear`. It also provides a reactive `size` computed property.
+
+## Import
+
+```typescript
+import { reatomSet } from '@reatom/core'
+```
+
+## Type Signature
+
+```typescript
+type StateInit<Value> = Set<Value> | ConstructorParameters<typeof Set<Value>>[0]
+
+interface SetAtom<T> extends Atom<Set<T>, [newState: StateInit<T>]> {
+  add: Action<[el: T], Set<T>>
+  delete: Action<[el: T], Set<T>>
+  toggle: Action<[el: T], Set<T>>
+  clear: Action<[], Set<T>>
+  reset: Action<[], Set<T>>
+  size: Computed<number>
+}
+
+function reatomSet<T>(
+  initState?: StateInit<T>,
+  name?: string
+): SetAtom<T>
+```
+
+## Parameters
+
+<ParamField path="initState" type="StateInit<T>" default="new Set()">
+  The initial Set value. Can be a Set instance or an iterable of values
+</ParamField>
+
+<ParamField path="name" type="string" default="'setAtom'">
+  Optional name for the atom, useful for debugging
+</ParamField>
+
+## Properties
+
+### size
+
+A computed atom that reactively tracks the size of the set.
+
+**Type:** `Computed<number>`
+
+```typescript
+const setAtom = reatomSet(new Set([1, 2, 3]))
+console.log(setAtom.size()) // 3
+
+setAtom.add(4)
+console.log(setAtom.size()) // 4
+```
+
+## Methods
+
+### add
+
+Adds an element to the set. Only triggers an update if the element is not already present.
+
+<ParamField path="el" type="T">
+  The element to add
+</ParamField>
+
+**Returns:** `Set<T>` - The updated set
+
+```typescript
+const setAtom = reatomSet(new Set([1, 2, 3]))
+
+setAtom.add(4)
+console.log(setAtom()) // Set([1, 2, 3, 4])
+```
+
+### delete
+
+Removes an element from the set.
+
+<ParamField path="el" type="T">
+  The element to remove
+</ParamField>
+
+**Returns:** `Set<T>` - The updated set
+
+```typescript
+const setAtom = reatomSet(new Set([1, 2, 3]))
+
+setAtom.delete(3)
+console.log(setAtom()) // Set([1, 2])
+```
+
+### toggle
+
+Toggles the presence of an element in the set. Adds it if not present, removes it if present.
+
+<ParamField path="el" type="T">
+  The element to toggle
+</ParamField>
+
+**Returns:** `Set<T>` - The updated set
+
+```typescript
+const setAtom = reatomSet(new Set([1, 2, 3]))
+
+setAtom.toggle(3)
+console.log(setAtom()) // Set([1, 2])
+
+setAtom.toggle(3)
+console.log(setAtom()) // Set([1, 2, 3])
+```
+
+### clear
+
+Removes all elements from the set.
+
+**Returns:** `Set<T>` - The cleared set
+
+```typescript
+const setAtom = reatomSet(new Set([1, 2, 3]))
+
+setAtom.clear()
+console.log(setAtom()) // Set([])
+```
+
+### reset
+
+Resets the set to its initial state.
+
+**Returns:** `Set<T>` - The reset set
+
+```typescript
+const setAtom = reatomSet(new Set([1, 2, 3]))
+
+setAtom.add(4)
+setAtom.reset()
+console.log(setAtom()) // Set([1, 2, 3])
+```
+
+### set
+
+Replaces the entire set state. Accepts a Set instance, an array, or a function.
+
+<ParamField path="newState" type="StateInit<T> | ((current: Set<T>) => Set<T>)">
+  New state value or update function
+</ParamField>
+
+**Returns:** `Set<T>` - The new set
+
+```typescript
+const setAtom = reatomSet<number>()
+
+// Set from array
+setAtom.set([1, 2])
+console.log(setAtom.size()) // 2
+
+// Functional update
+setAtom.set((prev) => {
+  return new Set([1, 2, 3])
+})
+console.log(setAtom.size()) // 3
+```
+
+## Basic Usage
+
+```typescript
+import { reatomSet } from '@reatom/core'
+
+// Create a set atom with initial values
+const tagsAtom = reatomSet(new Set(['react', 'typescript']))
+
+// Read the current value
+console.log(tagsAtom()) // Set(['react', 'typescript'])
+
+// Add elements
+tagsAtom.add('reatom')
+console.log(tagsAtom.size()) // 3
+
+// Remove elements
+tagsAtom.delete('react')
+console.log(tagsAtom.size()) // 2
+
+// Toggle elements
+tagsAtom.toggle('typescript') // removes it
+tagsAtom.toggle('typescript') // adds it back
+```
+
+## Advanced Usage
+
+### Using Array Syntax for Initialization
+
+```typescript
+// You can initialize with an array
+const setAtom = reatomSet([1, 2, 3])
+console.log(setAtom.size()) // 3
+
+// Or start empty
+const emptySet = reatomSet<string>()
+console.log(emptySet.size()) // 0
+```
+
+### Managing Selected Items
+
+```typescript
+interface Item {
+  id: string
+  name: string
+}
+
+const selectedIds = reatomSet<string>()
+
+function toggleSelection(id: string) {
+  selectedIds.toggle(id)
+}
+
+function isSelected(id: string): boolean {
+  return selectedIds().has(id)
+}
+
+function clearSelection() {
+  selectedIds.clear()
+}
+```
+
+### Reactive Size and Empty State
+
+```typescript
+import { computed } from '@reatom/core'
+
+const setAtom = reatomSet<number>()
+
+const isEmpty = computed(() => setAtom.size() === 0)
+const hasItems = computed(() => setAtom.size() > 0)
+
+console.log(isEmpty()) // true
+setAtom.add(1)
+console.log(isEmpty()) // false
+console.log(hasItems()) // true
+```
+
+### Using with Complex Objects
+
+```typescript
+// Note: Set equality is based on reference equality for objects
+interface User {
+  id: string
+  name: string
+}
+
+// Better to use a Set of IDs
+const activeUserIds = reatomSet<string>()
+
+activeUserIds.add('user-123')
+activeUserIds.add('user-456')
+
+// Or use a Map if you need the full objects
+import { reatomMap } from '@reatom/core'
+const activeUsers = reatomMap<string, User>()
+```
+
+### Reset to Initial State
+
+```typescript
+const filtersAtom = reatomSet(new Set(['active', 'verified']))
+
+// Add more filters
+filtersAtom.add('premium')
+console.log(filtersAtom.size()) // 3
+
+// Reset to initial filters
+filtersAtom.reset()
+console.log(filtersAtom()) // Set(['active', 'verified'])
+```
+
+## Notes
+
+- All mutations create new Set instances, preserving immutability
+- The `add`, `delete`, and `toggle` methods only trigger updates when the set actually changes
+- The `size` property is a computed atom that automatically updates when the set changes
+- Set equality is based on `===` comparison, which means object references must match
+- Direct mutations like `setAtom().add('value')` will not trigger updates; use the provided methods instead
+- The `set()` method can accept both Set instances and arrays for flexibility

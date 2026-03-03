@@ -1,0 +1,380 @@
+---
+title: "Computed"
+description: "Derived state that automatically tracks dependencies and recalculates only when needed"
+---
+
+## Overview
+
+A **computed** value is a derived state container that automatically tracks its dependencies and recalculates only when those dependencies change. Computed values are lazy - they only run when read AND subscribed to.
+
+Computed values:
+- Automatically track which atoms they depend on
+- Only recalculate when dependencies change
+- Cache their result until dependencies update
+- Are read-only (cannot be set directly)
+
+## Creating Computed Values
+
+### Basic Usage
+
+Create a computed value with a function:
+
+```typescript
+import { atom, computed } from '@reatom/core'
+
+const count = atom(5, 'count')
+const doubled = computed(() => count() * 2, 'doubled')
+
+// Reading triggers computation (if subscribed)
+const value = doubled() // -> 10
+```
+
+### Type Signature
+
+```typescript
+interface Computed<State = any> {
+  // Read the computed value
+  (): State
+  
+  // Subscribe to changes
+  subscribe(cb?: (state: State) => any): Unsubscribe
+  
+  // Extension system
+  extend: Extend<this>
+  
+  // No set method - computed values are read-only
+}
+```
+
+## Automatic Dependency Tracking
+
+Computed values automatically track any atoms read during execution:
+
+```typescript
+const firstName = atom('John', 'firstName')
+const lastName = atom('Doe', 'lastName')
+
+// Automatically depends on firstName and lastName
+const fullName = computed(() => {
+  return `${firstName()} ${lastName()}`
+}, 'fullName')
+
+fullName.subscribe(name => console.log(name))
+// Logs: "John Doe"
+
+firstName.set('Jane')
+// Logs: "Jane Doe" - automatically recalculated
+```
+
+<Tip>
+You don't need to declare dependencies manually - Reatom tracks them automatically!
+</Tip>
+
+## Lazy Evaluation
+
+Computed values are lazy - they only execute when:
+1. They are **read** (called as a function)
+2. AND they have **subscribers** OR are **dirty**
+
+```typescript
+const count = atom(0, 'count')
+
+let computeCount = 0
+const doubled = computed(() => {
+  computeCount++
+  console.log('Computing doubled...')
+  return count() * 2
+}, 'doubled')
+
+// No computation yet - not subscribed
+count.set(5)
+console.log(computeCount) // -> 0
+
+// Subscribe triggers initial computation
+const unsub = doubled.subscribe()
+// Logs: "Computing doubled..."
+console.log(computeCount) // -> 1
+
+// Changes trigger recomputation
+count.set(10)
+// Logs: "Computing doubled..."
+console.log(computeCount) // -> 2
+```
+
+## Conditional Dependencies
+
+Dependencies can be conditional based on runtime logic:
+
+<CodeGroup>
+
+```typescript Conditional Reading
+const isActive = atom(true, 'isActive')
+const dataA = atom('A', 'dataA')
+const dataB = atom('B', 'dataB')
+
+const result = computed(() => {
+  // Dependencies change based on isActive
+  if (isActive()) {
+    return dataA() // Only depends on dataA when active
+  } else {
+    return dataB() // Only depends on dataB when inactive
+  }
+}, 'result')
+```
+
+```typescript Optional Dependencies
+const user = atom<{ name: string } | null>(null, 'user')
+
+const userName = computed(() => {
+  const u = user()
+  // Only has dependency when user exists
+  return u?.name ?? 'Guest'
+}, 'userName')
+```
+
+</CodeGroup>
+
+## Chaining Computed Values
+
+Computed values can depend on other computed values:
+
+```typescript
+const count = atom(5, 'count')
+const doubled = computed(() => count() * 2, 'doubled')
+const quadrupled = computed(() => doubled() * 2, 'quadrupled')
+
+quadrupled.subscribe(value => console.log(value))
+// Logs: 20
+
+count.set(10)
+// Logs: 40 - both computed values update
+```
+
+<Note>
+Reatom efficiently handles dependency chains. Only the necessary computations run when an atom changes.
+</Note>
+
+## Derived State Patterns
+
+### Filtering
+
+```typescript
+const todos = atom([
+  { id: 1, text: 'Learn Reatom', done: false },
+  { id: 2, text: 'Build app', done: true },
+], 'todos')
+
+const activeTodos = computed(() => {
+  return todos().filter(todo => !todo.done)
+}, 'activeTodos')
+
+const completedCount = computed(() => {
+  return todos().filter(todo => todo.done).length
+}, 'completedCount')
+```
+
+### Transformation
+
+```typescript
+const users = atom([
+  { id: 1, name: 'Alice', age: 30 },
+  { id: 2, name: 'Bob', age: 25 },
+], 'users')
+
+const userNames = computed(() => {
+  return users().map(u => u.name)
+}, 'userNames')
+
+const averageAge = computed(() => {
+  const list = users()
+  return list.reduce((sum, u) => sum + u.age, 0) / list.length
+}, 'averageAge')
+```
+
+### Aggregation
+
+```typescript
+const itemsAtom = atom([1, 2, 3, 4, 5], 'items')
+
+const sum = computed(() => {
+  return itemsAtom().reduce((a, b) => a + b, 0)
+}, 'sum')
+
+const average = computed(() => {
+  const items = itemsAtom()
+  return sum() / items.length
+}, 'average')
+```
+
+## Error Handling
+
+Computed values can handle errors in their dependencies:
+
+```typescript
+const data = atom<number>(5, 'data')
+
+const riskyComputed = computed(() => {
+  const value = data()
+  if (value < 0) {
+    throw new Error('Value cannot be negative')
+  }
+  return value * 2
+}, 'riskyComputed')
+
+const safeComputed = computed(() => {
+  try {
+    return riskyComputed()
+  } catch (error) {
+    console.error('Error in computation:', error)
+    return 0 // Fallback value
+  }
+}, 'safeComputed')
+```
+
+## Disconnecting Dependencies
+
+When a computed value is unsubscribed, it automatically disconnects from its dependencies:
+
+```typescript
+import { atom, computed, isConnected } from '@reatom/core'
+
+const source = atom(0, 'source')
+const derived = computed(() => source(), 'derived')
+
+console.log(isConnected(source)) // false
+
+const unsub = derived.subscribe()
+console.log(isConnected(source)) // true - source is connected
+
+unsub()
+console.log(isConnected(source)) // false - automatically disconnected
+```
+
+## Comparison with Atoms
+
+| Feature | Atom | Computed |
+|---------|------|----------|
+| Can be set | Yes | No |
+| Has dependencies | No | Yes |
+| Tracks dependents | Yes | Yes |
+| Caching | Always current | Cached until deps change |
+| Use case | Mutable state | Derived state |
+
+## Performance Optimization
+
+### Memoization
+
+Computed values automatically memoize their results:
+
+```typescript
+const expensiveData = atom([], 'expensiveData')
+
+const processed = computed(() => {
+  console.log('Processing...')
+  return expensiveProcessing(expensiveData())
+}, 'processed')
+
+processed.subscribe()
+
+// Multiple reads use cached value
+processed() // Logs: "Processing..."
+processed() // No log - uses cached value
+processed() // No log - uses cached value
+
+// Only recomputes when dependency changes
+expensiveData.set([1, 2, 3])
+// Logs: "Processing..." - recalculated
+```
+
+### Avoiding Over-computation
+
+<CodeGroup>
+
+```typescript Inefficient
+const data = atom([1, 2, 3], 'data')
+
+// Computed on every read of parent
+const result = computed(() => {
+  return data().map(x => {
+    return computed(() => x * 2) // Don't create computed inside computed!
+  })
+}, 'result')
+```
+
+```typescript Efficient
+const data = atom([1, 2, 3], 'data')
+
+// Single computed for transformation
+const doubled = computed(() => {
+  return data().map(x => x * 2)
+}, 'doubled')
+```
+
+</CodeGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep computations pure">
+    Computed functions should be pure - no side effects:
+    
+    ```typescript
+    // Good - pure function
+    const doubled = computed(() => count() * 2, 'doubled')
+    
+    // Avoid - side effects
+    const withSideEffect = computed(() => {
+      console.log('Computing...') // Side effect!
+      return count() * 2
+    }, 'withSideEffect')
+    ```
+  </Accordion>
+
+  <Accordion title="Use descriptive names">
+    Name computed values based on what they represent:
+    
+    ```typescript
+    // Good
+    const completedTasksCount = computed(...)
+    const formattedDate = computed(...)
+    
+    // Avoid
+    const computed1 = computed(...)
+    const temp = computed(...)
+    ```
+  </Accordion>
+
+  <Accordion title="Avoid expensive computations without subscribers">
+    Remember that computed values are lazy - they won't run unless subscribed:
+    
+    ```typescript
+    const expensive = computed(() => {
+      // This won't run until something subscribes!
+      return heavyProcessing()
+    }, 'expensive')
+    
+    // Need to subscribe for it to react
+    expensive.subscribe()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Atom" icon="atom" href="/core/atom">
+    Create mutable state containers
+  </Card>
+  
+  <Card title="Actions" icon="bolt" href="/core/actions">
+    Encapsulate logic and side effects
+  </Card>
+  
+  <Card title="Effects" icon="wand-magic-sparkles" href="/core/effects">
+    Run reactive side effects
+  </Card>
+  
+  <Card title="Extend" icon="puzzle-piece" href="/core/extend">
+    Add capabilities with extensions
+  </Card>
+</CardGroup>

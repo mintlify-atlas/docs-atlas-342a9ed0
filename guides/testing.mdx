@@ -1,0 +1,706 @@
+---
+title: Testing Reatom Code
+description: Learn how to test atoms, actions, async operations, and side effects with best practices and patterns
+---
+
+# Testing Reatom Code
+
+Reatom's architecture makes testing straightforward and predictable. Test your state logic in isolation without complex mocking or framework-specific testing utilities.
+
+## Core Testing Principles
+
+Reatom enables effective testing through:
+
+- **Isolation** - Test atoms and actions independently
+- **Determinism** - Pure computations produce predictable results
+- **Synchronous Testing** - Most tests run synchronously
+- **No Mocking** - Test real implementations
+- **Framework Agnostic** - Works with any test runner
+
+## Quick Start
+
+### Basic Atom Test
+
+```ts
+import { test, expect } from 'vitest'
+import { atom } from '@reatom/core'
+
+test('counter atom', () => {
+  const counterAtom = atom(0, 'counterAtom')
+  
+  // Initial state
+  expect(counterAtom()).toBe(0)
+  
+  // Update state
+  counterAtom.set(5)
+  expect(counterAtom()).toBe(5)
+  
+  // Update with function
+  counterAtom.set((prev) => prev + 1)
+  expect(counterAtom()).toBe(6)
+})
+```
+
+### Action Test
+
+```ts
+import { test, expect } from 'vitest'
+import { atom, action } from '@reatom/core'
+
+test('increment action', () => {
+  const counterAtom = atom(0, 'counterAtom')
+  
+  const increment = action(() => {
+    counterAtom.set((prev) => prev + 1)
+  }, 'increment')
+  
+  increment()
+  expect(counterAtom()).toBe(1)
+  
+  increment()
+  expect(counterAtom()).toBe(2)
+})
+```
+
+## Testing Computed Atoms
+
+### Basic Computed
+
+```ts
+import { test, expect } from 'vitest'
+import { atom, computed } from '@reatom/core'
+
+test('computed atom', () => {
+  const firstNameAtom = atom('John', 'firstNameAtom')
+  const lastNameAtom = atom('Doe', 'lastNameAtom')
+  
+  const fullNameAtom = computed(
+    () => `${firstNameAtom()} ${lastNameAtom()}`,
+    'fullNameAtom'
+  )
+  
+  expect(fullNameAtom()).toBe('John Doe')
+  
+  firstNameAtom.set('Jane')
+  expect(fullNameAtom()).toBe('Jane Doe')
+})
+```
+
+### Memoization Test
+
+```ts
+import { test, expect, vi } from 'vitest'
+import { atom, computed } from '@reatom/core'
+
+test('computed memoization', () => {
+  const counterAtom = atom(0, 'counterAtom')
+  const computeFn = vi.fn(() => counterAtom() * 2)
+  
+  const doubledAtom = computed(computeFn, 'doubledAtom')
+  
+  // First call
+  expect(doubledAtom()).toBe(0)
+  expect(computeFn).toHaveBeenCalledTimes(1)
+  
+  // Cached result
+  expect(doubledAtom()).toBe(0)
+  expect(computeFn).toHaveBeenCalledTimes(1)
+  
+  // Recompute on dependency change
+  counterAtom.set(5)
+  expect(doubledAtom()).toBe(10)
+  expect(computeFn).toHaveBeenCalledTimes(2)
+})
+```
+
+## Testing Async Operations
+
+### Async Actions
+
+```ts
+import { test, expect } from 'vitest'
+import { action, wrap, noop } from '@reatom/core'
+import { withAsync } from '@reatom/core/async'
+
+test('async action', async () => {
+  const fetchUser = action(async (id: string) => {
+    const res = await wrap(fetch(`/api/users/${id}`))
+    return await wrap(res.json())
+  }, 'fetchUser').extend(withAsync())
+  
+  // Initial state
+  expect(fetchUser.pending()).toBe(0)
+  expect(fetchUser.ready()).toBe(true)
+  
+  // Start async operation
+  const promise = fetchUser('123')
+  expect(fetchUser.pending()).toBe(1)
+  expect(fetchUser.ready()).toBe(false)
+  
+  // Wait for completion
+  await wrap(promise)
+  expect(fetchUser.pending()).toBe(0)
+  expect(fetchUser.ready()).toBe(true)
+  expect(fetchUser.error()).toBeUndefined()
+})
+```
+
+### Testing withAsyncData
+
+```ts
+import { test, expect } from 'vitest'
+import { computed, wrap } from '@reatom/core'
+import { withAsyncData } from '@reatom/core/async'
+
+test('async data', async () => {
+  const userData = computed(async () => {
+    return { id: 1, name: 'John' }
+  }, 'userData').extend(withAsyncData())
+  
+  // Initial state
+  expect(userData.data()).toBeUndefined()
+  expect(userData.ready()).toBe(false)
+  
+  // Trigger computation
+  await wrap(userData())
+  
+  // Check results
+  expect(userData.ready()).toBe(true)
+  expect(userData.data()).toEqual({ id: 1, name: 'John' })
+})
+```
+
+### Error Handling
+
+```ts
+import { test, expect } from 'vitest'
+import { action, wrap, noop } from '@reatom/core'
+import { withAsync } from '@reatom/core/async'
+
+test('async error handling', async () => {
+  const failingAction = action(async () => {
+    throw new Error('Test error')
+  }, 'failingAction').extend(withAsync())
+  
+  await wrap(failingAction()).catch(noop)
+  
+  expect(failingAction.error()).toBeInstanceOf(Error)
+  expect(failingAction.error()?.message).toBe('Test error')
+  expect(failingAction.ready()).toBe(true)
+})
+```
+
+## Testing Forms
+
+### Field Validation
+
+```ts
+import { test, expect } from 'vitest'
+import { reatomField } from '@reatom/core/form'
+import { wrap, noop } from '@reatom/core'
+
+test('field validation', async () => {
+  const emailField = reatomField('', {
+    validate: ({ value }) => {
+      if (!value.includes('@')) {
+        return 'Invalid email'
+      }
+    },
+  })
+  
+  // Trigger validation
+  await wrap(emailField.validation.trigger())
+  
+  const validation = emailField.validation()
+  expect(validation.errors).toHaveLength(1)
+  expect(validation.errors[0]?.message).toBe('Invalid email')
+  
+  // Fix and revalidate
+  emailField.change('user@example.com')
+  await wrap(emailField.validation.trigger())
+  
+  expect(emailField.validation().errors).toHaveLength(0)
+})
+```
+
+### Form Submission
+
+```ts
+import { test, expect, vi } from 'vitest'
+import { reatomForm } from '@reatom/core/form'
+import { wrap, noop } from '@reatom/core'
+
+test('form submission', async () => {
+  const onSubmit = vi.fn(async (state) => {
+    return { success: true }
+  })
+  
+  const form = reatomForm(
+    { email: '', password: '' },
+    { onSubmit }
+  )
+  
+  // Fill form
+  form.fields.email.change('user@example.com')
+  form.fields.password.change('secret123')
+  
+  // Submit
+  await wrap(form.submit())
+  
+  expect(onSubmit).toHaveBeenCalledWith({
+    email: 'user@example.com',
+    password: 'secret123',
+  })
+  expect(form.submitted()).toBe(true)
+  expect(form.submit.data()).toEqual({ success: true })
+})
+```
+
+### Schema Validation
+
+```ts
+import { test, expect } from 'vitest'
+import { reatomForm } from '@reatom/core/form'
+import { wrap, noop } from '@reatom/core'
+import { z } from 'zod'
+
+test('form schema validation', async () => {
+  const form = reatomForm(
+    { age: 0 },
+    {
+      schema: z.object({
+        age: z.number().min(18, 'Must be 18 or older'),
+      }),
+    }
+  )
+  
+  form.fields.age.change(16)
+  
+  // Submit should fail validation
+  await wrap(form.submit()).catch(noop)
+  
+  expect(form.submit.error()).toBeDefined()
+  expect(form.fields.age.validation().errors[0]?.message)
+    .toBe('Must be 18 or older')
+  
+  // Fix and resubmit
+  form.fields.age.change(25)
+  await wrap(form.submit()).catch(noop)
+  
+  expect(form.submit.error()).toBeUndefined()
+})
+```
+
+## Testing Routing
+
+### Route Matching
+
+```ts
+import { test, expect } from 'vitest'
+import { reatomRoute, urlAtom } from '@reatom/core'
+
+test('route matching', () => {
+  const userRoute = reatomRoute('users/:userId')
+  
+  // No match initially
+  expect(userRoute()).toBeNull()
+  expect(userRoute.match()).toBe(false)
+  
+  // Navigate to route
+  userRoute.go({ userId: '123' })
+  
+  // Check match
+  expect(userRoute()).toEqual({ userId: '123' })
+  expect(userRoute.match()).toBe(true)
+  expect(userRoute.exact()).toBe(true)
+})
+```
+
+### Route Loaders
+
+```ts
+import { test, expect, vi } from 'vitest'
+import { reatomRoute } from '@reatom/core'
+import { wrap } from '@reatom/core'
+
+test('route loader', async () => {
+  const loadUser = vi.fn(async ({ userId }) => {
+    return { id: userId, name: 'John' }
+  })
+  
+  const userRoute = reatomRoute({
+    path: 'users/:userId',
+    loader: loadUser,
+  })
+  
+  // Navigate to route
+  userRoute.go({ userId: '123' })
+  
+  // Wait for loader
+  await wrap(userRoute.loader())
+  
+  expect(loadUser).toHaveBeenCalledWith({ userId: '123' })
+  expect(userRoute.loader.data()).toEqual({ 
+    id: '123', 
+    name: 'John' 
+  })
+})
+```
+
+## Testing Persistence
+
+### LocalStorage Persistence
+
+```ts
+import { test, expect, beforeEach } from 'vitest'
+import { atom } from '@reatom/core'
+import { withLocalStorage } from '@reatom/core/persist'
+
+beforeEach(() => {
+  localStorage.clear()
+})
+
+test('localStorage persistence', () => {
+  const counterAtom = atom(0, 'counterAtom').extend(
+    withLocalStorage('counter')
+  )
+  
+  // Update atom
+  counterAtom.set(5)
+  
+  // Check localStorage
+  const stored = localStorage.getItem('counter')
+  expect(stored).toBeDefined()
+  
+  const record = JSON.parse(stored!)
+  expect(record.data).toBe(5)
+})
+```
+
+### Memory Storage for Tests
+
+```ts
+import { test, expect } from 'vitest'
+import { atom } from '@reatom/core'
+import { createMemStorage, reatomPersist } from '@reatom/core/persist'
+
+test('memory storage', () => {
+  const storage = createMemStorage({
+    name: 'test',
+    snapshot: { counter: 10 },
+  })
+  
+  const withTestStorage = reatomPersist(storage)
+  
+  const counterAtom = atom(0, 'counterAtom').extend(
+    withTestStorage('counter')
+  )
+  
+  // Hydrated from snapshot
+  expect(counterAtom()).toBe(10)
+  
+  // Updates storage
+  counterAtom.set(20)
+  const record = storage.get({ key: 'counter' })
+  expect(record?.data).toBe(20)
+})
+```
+
+## Mocking Dependencies
+
+### Mock API Calls
+
+```ts
+import { test, expect, vi, beforeEach } from 'vitest'
+import { action, wrap } from '@reatom/core'
+import { withAsync } from '@reatom/core/async'
+
+beforeEach(() => {
+  global.fetch = vi.fn()
+})
+
+test('mocked fetch', async () => {
+  const mockUser = { id: 1, name: 'John' }
+  
+  vi.mocked(fetch).mockResolvedValueOnce(
+    new Response(JSON.stringify(mockUser))
+  )
+  
+  const fetchUser = action(async (id: string) => {
+    const res = await wrap(fetch(`/api/users/${id}`))
+    return await wrap(res.json())
+  }, 'fetchUser').extend(withAsync())
+  
+  await wrap(fetchUser('1'))
+  
+  expect(fetch).toHaveBeenCalledWith('/api/users/1')
+  expect(fetchUser.data()).toEqual(mockUser)
+})
+```
+
+### Dependency Injection
+
+```ts
+import { test, expect, vi } from 'vitest'
+import { atom, action } from '@reatom/core'
+
+// Define dependencies as atoms
+const apiAtom = atom({
+  fetchUser: async (id: string) => {
+    const res = await fetch(`/api/users/${id}`)
+    return await res.json()
+  },
+}, 'apiAtom')
+
+const fetchUserAction = action(async (id: string) => {
+  const api = apiAtom()
+  return await api.fetchUser(id)
+}, 'fetchUserAction')
+
+test('dependency injection', async () => {
+  // Mock the API
+  const mockFetchUser = vi.fn(async () => ({ 
+    id: 1, 
+    name: 'John' 
+  }))
+  
+  apiAtom.set({
+    fetchUser: mockFetchUser,
+  })
+  
+  const result = await fetchUserAction('1')
+  
+  expect(mockFetchUser).toHaveBeenCalledWith('1')
+  expect(result).toEqual({ id: 1, name: 'John' })
+})
+```
+
+## Testing Side Effects
+
+### Effect Testing
+
+```ts
+import { test, expect, vi } from 'vitest'
+import { atom, effect } from '@reatom/core'
+
+test('effect runs on changes', () => {
+  const counterAtom = atom(0, 'counterAtom')
+  const effectFn = vi.fn(() => {
+    counterAtom() // Subscribe
+  })
+  
+  const cleanup = effect(effectFn)
+  
+  expect(effectFn).toHaveBeenCalledTimes(1)
+  
+  counterAtom.set(1)
+  expect(effectFn).toHaveBeenCalledTimes(2)
+  
+  counterAtom.set(2)
+  expect(effectFn).toHaveBeenCalledTimes(3)
+  
+  cleanup()
+})
+```
+
+### Hook Testing
+
+```ts
+import { test, expect, vi } from 'vitest'
+import { atom } from '@reatom/core'
+import { withChangeHook } from '@reatom/core'
+
+test('change hook', () => {
+  const hook = vi.fn()
+  
+  const counterAtom = atom(0, 'counterAtom').extend(
+    withChangeHook(hook)
+  )
+  
+  counterAtom.set(1)
+  expect(hook).toHaveBeenCalledWith(1)
+  
+  counterAtom.set(2)
+  expect(hook).toHaveBeenCalledWith(2)
+  
+  expect(hook).toHaveBeenCalledTimes(2)
+})
+```
+
+## Best Practices
+
+### 1. Test Behavior, Not Implementation
+
+```ts
+// ✓ Good - tests behavior
+test('user can log in', async () => {
+  loginForm.fields.email.change('user@example.com')
+  loginForm.fields.password.change('password')
+  
+  await wrap(loginForm.submit())
+  
+  expect(isLoggedIn()).toBe(true)
+})
+
+// ✗ Bad - tests implementation details
+test('login sets internal state', async () => {
+  expect(loginForm.fields.email.value()).toBe('')
+  expect(loginForm.fields.password.value()).toBe('')
+  // Too focused on internal details
+})
+```
+
+### 2. Use Real Implementations
+
+```ts
+// ✓ Good - tests real atom
+test('counter increments', () => {
+  const counter = atom(0)
+  counter.set((n) => n + 1)
+  expect(counter()).toBe(1)
+})
+
+// ✗ Bad - mocks everything
+test('counter increments', () => {
+  const counter = { set: vi.fn(), get: vi.fn() }
+  // Not testing real code
+})
+```
+
+### 3. Clean Up After Tests
+
+```ts
+import { beforeEach, afterEach } from 'vitest'
+
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+})
+
+afterEach(() => {
+  vi.clearAllMocks()
+})
+```
+
+### 4. Test Edge Cases
+
+```ts
+test('handles empty input', () => {
+  const field = reatomField('')
+  field.change('')
+  expect(field.value()).toBe('')
+})
+
+test('handles null values', () => {
+  const atom = atom<string | null>(null)
+  expect(atom()).toBeNull()
+})
+
+test('handles async errors', async () => {
+  const action = action(async () => {
+    throw new Error('Test')
+  }).extend(withAsync())
+  
+  await wrap(action()).catch(noop)
+  expect(action.error()).toBeDefined()
+})
+```
+
+### 5. Use Descriptive Test Names
+
+```ts
+// ✓ Good - clear intent
+test('increments counter when increment button is clicked', () => {
+  // ...
+})
+
+test('shows validation error when email is invalid', async () => {
+  // ...
+})
+
+// ✗ Bad - vague
+test('it works', () => {
+  // ...
+})
+
+test('test 1', () => {
+  // ...
+})
+```
+
+## Common Patterns
+
+### Snapshot Testing
+
+```ts
+import { test, expect } from 'vitest'
+import { atom } from '@reatom/core'
+
+test('state snapshot', () => {
+  const state = {
+    user: userAtom(),
+    settings: settingsAtom(),
+    theme: themeAtom(),
+  }
+  
+  expect(state).toMatchSnapshot()
+})
+```
+
+### Parameterized Tests
+
+```ts
+import { test, expect } from 'vitest'
+import { reatomField } from '@reatom/core/form'
+
+test.each([
+  { input: 'test@example.com', valid: true },
+  { input: 'invalid', valid: false },
+  { input: '', valid: false },
+  { input: 'test@', valid: false },
+])('validates email: $input', async ({ input, valid }) => {
+  const emailField = reatomField('', {
+    validate: ({ value }) => {
+      if (!value.includes('@')) return 'Invalid email'
+    },
+  })
+  
+  emailField.change(input)
+  await wrap(emailField.validation.trigger())
+  
+  const hasErrors = emailField.validation().errors.length > 0
+  expect(hasErrors).toBe(!valid)
+})
+```
+
+### Integration Tests
+
+```ts
+import { test, expect } from 'vitest'
+import { wrap } from '@reatom/core'
+
+test('complete user flow', async () => {
+  // Navigate to register
+  registerRoute.go()
+  
+  // Fill form
+  registerForm.fields.email.change('user@example.com')
+  registerForm.fields.password.change('password123')
+  
+  // Submit
+  await wrap(registerForm.submit())
+  
+  // Should redirect to dashboard
+  expect(dashboardRoute.match()).toBe(true)
+  
+  // User should be logged in
+  expect(currentUser()).toBeDefined()
+})
+```
+
+## Related APIs
+
+- [atom()](/api/core/atom) - Create atoms
+- [action()](/api/core/action) - Create actions
+- [computed()](/api/core/computed) - Create computed atoms
+- [effect()](/api/core/effect) - Create side effects

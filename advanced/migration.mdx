@@ -1,0 +1,503 @@
+---
+title: Migration from v3 to v1000
+description: Step-by-step guide to migrating your Reatom applications from v3 to the v1000 epoch release with new implicit context management and simplified APIs.
+---
+
+Reatom v1000 is an epoch release that solves the most significant pain point of v3: explicit context management. The new version operates with implicit global context like other signal libraries, while still supporting custom contexts for advanced use cases.
+
+## What's New in v1000
+
+### Implicit Context Management
+
+The biggest change is that you no longer need to pass `ctx` everywhere:
+
+```ts
+// v3 - Explicit context
+const getValue = (ctx: Ctx) => {
+  const data = ctx.spy(dataAtom)
+  return data
+}
+
+// v1000 - Implicit context
+const getValue = () => {
+  const data = dataAtom()
+  return data
+}
+```
+
+### Key Benefits
+
+- **Simpler API** - No more `ctx` parameter threading
+- **Better DX** - Code reads more naturally
+- **Still powerful** - Custom contexts available when needed
+- **Familiar patterns** - Similar to other signal libraries
+
+<Note>
+  Reatom v1000 uses implicit context by default, but you can still create custom contexts for SSR, testing, or isolation. This gives you the best of both worlds.
+</Note>
+
+## Migration Strategy
+
+<Steps>
+  <Step title="Update dependencies">
+    Update all Reatom packages to v1000:
+    ```bash
+    npm install @reatom/core@latest @reatom/react@latest
+    # or
+    pnpm rm @reatom/core @reatom/react && pnpm i @reatom/core@latest @reatom/react@latest
+    ```
+  </Step>
+  
+  <Step title="Update TypeScript types">
+    Replace old type names with new ones throughout your codebase.
+  </Step>
+  
+  <Step title="Remove ctx parameters">
+    Remove `ctx` from all atom callbacks and action bodies.
+  </Step>
+  
+  <Step title="Update API calls">
+    Replace v3 methods with v1000 equivalents.
+  </Step>
+  
+  <Step title="Test thoroughly">
+    Run your test suite and verify behavior matches expectations.
+  </Step>
+</Steps>
+
+## API Changes Reference
+
+### Core Context APIs
+
+| v3 | v1000 | Notes |
+|----|----|-------|
+| `ctx.spy(atom)` | `atom()` | Call atom as function |
+| `ctx.get(atom)` | `peek(atom)` | Non-reactive read |
+| `atom(ctx, value)` | `atom.set(value)` | Update atom |
+| `atom(ctx, (s) => s)` | `atom.set((s) => s)` | Update with callback |
+| `ctx.schedule(promise)` | `wrap(promise)` | Preserve context |
+| `ctx.spy(atom, cb)` | `ifChanged(atom, cb)` | React to changes |
+| `ctx.spy(action, cb)` | `getCalls(action).forEach(cb)` | React to action |
+
+### Type Changes
+
+| v3 | v1000 | Notes |
+|----|----|-------|
+| `Atom<T>` | `AtomLike<T>` | Generic atom interface |
+| `AtomMut<T>` | `Atom<T>` | Mutable atom |
+| `Ctx` | (removed) | Use implicit context |
+
+### Primitive Changes
+
+| v3 | v1000 | Notes |
+|----|----|-------|
+| `atom(callback)` | `computed(callback)` | Derived state |
+| `reaction(callback)` | `effect(callback)` | Side effects |
+| `reatomAsync(cb)` | `action(cb).extend(withAsync())` | Async action |
+| `reatomResource(cb)` | `computed(cb).extend(withAsyncData())` | Data fetching |
+
+### Extension Changes
+
+| v3 | v1000 | Notes |
+|----|----|-------|
+| `anAtom.onChange(cb)` | `anAtom.extend(withChangeHook(cb))` | Change listener |
+| `onConnect(atom, cb)` | `atom.extend(withConnectHook(cb))` | Mount/unmount |
+| `take(atom, (ctx, v, SKIP) => ...)` | `take(atom, (v) => v \|\| throwAbort())` | Filter values |
+| `withConcurrency` | `withAbort` | Cancellation |
+
+## Step-by-Step Examples
+
+### 1. Simple Atom Migration
+
+**Before (v3):**
+
+```ts
+import { atom } from '@reatom/core'
+import type { Ctx } from '@reatom/core'
+
+const counterAtom = atom(0, 'counter')
+
+const getValue = (ctx: Ctx) => {
+  return ctx.spy(counterAtom)
+}
+
+const setValue = (ctx: Ctx, value: number) => {
+  counterAtom(ctx, value)
+}
+```
+
+**After (v1000):**
+
+```ts
+import { atom } from '@reatom/core'
+
+const counter = atom(0, 'counter')
+
+const getValue = () => {
+  return counter()
+}
+
+const setValue = (value: number) => {
+  counter.set(value)
+}
+```
+
+### 2. Computed Atom Migration
+
+**Before (v3):**
+
+```ts
+import { atom } from '@reatom/core'
+
+const firstNameAtom = atom('', 'firstName')
+const lastNameAtom = atom('', 'lastName')
+
+const fullNameAtom = atom((ctx) => {
+  return `${ctx.spy(firstNameAtom)} ${ctx.spy(lastNameAtom)}`
+}, 'fullName')
+```
+
+**After (v1000):**
+
+```ts
+import { atom, computed } from '@reatom/core'
+
+const firstName = atom('', 'firstName')
+const lastName = atom('', 'lastName')
+
+const fullName = computed(() => {
+  return `${firstName()} ${lastName()}`
+}, 'fullName')
+```
+
+### 3. Action Migration
+
+**Before (v3):**
+
+```ts
+import { action, atom } from '@reatom/core'
+import type { Ctx } from '@reatom/core'
+
+const listAtom = atom([], 'list')
+const loadingAtom = atom(false, 'loading')
+
+const fetchList = action((ctx) => {
+  loadingAtom(ctx, true)
+  
+  return fetch('/api/list')
+    .then(res => res.json())
+    .then(data => {
+      listAtom(ctx, data)
+      loadingAtom(ctx, false)
+    })
+}, 'fetchList')
+```
+
+**After (v1000):**
+
+```ts
+import { action, atom, wrap } from '@reatom/core'
+
+const list = atom([], 'list')
+const isLoading = atom(false, 'isLoading')
+
+const fetchList = action(async () => {
+  isLoading.set(true)
+  try {
+    const response = await wrap(fetch('/api/list'))
+    const data = await response.json()
+    list.set(data)
+  } finally {
+    isLoading.set(false)
+  }
+}, 'fetchList')
+```
+
+<Tip>
+  Use `wrap()` around promises to preserve Reatom context across async boundaries. This is crucial for proper context management.
+</Tip>
+
+### 4. Resource Migration
+
+**Before (v3):**
+
+```ts
+import { reatomResource } from '@reatom/core'
+
+const userResource = reatomResource(async (ctx, id: string) => {
+  const response = await fetch(`/api/users/${id}`)
+  return response.json()
+}, 'userResource')
+```
+
+**After (v1000):**
+
+```ts
+import { computed, atom, withAsyncData, wrap } from '@reatom/core'
+
+const userId = atom('', 'userId')
+
+const userResource = computed(async () => {
+  const id = userId()
+  if (!id) return null
+  
+  const response = await wrap(fetch(`/api/users/${id}`))
+  return response.json()
+}, 'userResource').extend(
+  withAsyncData({ initState: null })
+)
+
+// Access via:
+// userResource.data() - the user object
+// userResource.ready() - loading state
+// userResource.error() - error if any
+// userResource.retry() - refetch
+```
+
+### 5. Effect Migration
+
+**Before (v3):**
+
+```ts
+import { atom } from '@reatom/core'
+
+const searchAtom = atom('', 'search')
+
+const reaction = reatomResource(async (ctx) => {
+  const query = ctx.spy(searchAtom)
+  if (!query) return
+  
+  const results = await fetch(`/api/search?q=${query}`)
+  console.log('Search results:', results)
+}, 'searchReaction')
+```
+
+**After (v1000):**
+
+```ts
+import { atom, effect, wrap } from '@reatom/core'
+
+const search = atom('', 'search')
+
+effect(async () => {
+  const query = search()
+  if (!query) return
+  
+  const response = await wrap(fetch(`/api/search?q=${query}`))
+  const results = await response.json()
+  console.log('Search results:', results)
+}, 'searchEffect')
+```
+
+### 6. React Integration Migration
+
+**Before (v3):**
+
+```tsx
+import { useAtom } from '@reatom/react'
+import { counterAtom } from './model'
+
+const Counter = () => {
+  const [count, setCount] = useAtom(counterAtom)
+  
+  return (
+    <button onClick={() => setCount(count + 1)}>
+      Count: {count}
+    </button>
+  )
+}
+```
+
+**After (v1000):**
+
+```tsx
+import { reatomComponent } from '@reatom/react'
+import { counter } from './model'
+
+const Counter = reatomComponent(() => {
+  return (
+    <button onClick={() => counter.set((v) => v + 1)}>
+      Count: {counter()}
+    </button>
+  )
+})
+```
+
+<Note>
+  `reatomComponent` is a computed-enhanced React component that automatically tracks dependencies and re-renders efficiently.
+</Note>
+
+## Advanced: Custom Contexts
+
+While v1000 uses implicit context by default, you can still create custom contexts for:
+
+- **SSR** - Isolate state per request
+- **Testing** - Clean state between tests
+- **Multi-tenancy** - Separate state per tenant
+
+### Clear Default Context
+
+```ts
+import { clearStack } from '@reatom/core'
+
+// Remove default context, require explicit context
+clearStack()
+```
+
+### Create Custom Context
+
+```ts
+import { createContext } from '@reatom/core'
+
+// For SSR
+const handleRequest = async (req, res) => {
+  const ctx = createContext()
+  
+  ctx.start(() => {
+    // Your app logic here with isolated context
+    const html = renderApp()
+    res.send(html)
+  })
+}
+```
+
+### Testing with Custom Context
+
+```ts
+import { createTestCtx } from '@reatom/testing'
+import { expect, test } from 'vitest'
+
+test('counter increments', () => {
+  const ctx = createTestCtx()
+  
+  ctx.start(() => {
+    counter.set(0)
+    counter.set((v) => v + 1)
+    expect(counter()).toBe(1)
+  })
+})
+```
+
+## Common Migration Issues
+
+### Issue: "ctx is not defined"
+
+**Problem:**
+```ts
+const value = computed((ctx) => {
+  return ctx.spy(dataAtom) // Error: ctx.spy is not a function
+})
+```
+
+**Solution:**
+```ts
+const value = computed(() => {
+  return dataAtom() // No ctx needed
+})
+```
+
+### Issue: "Missing async stack"
+
+**Problem:**
+Async operations lose context because promises aren't wrapped.
+
+**Solution:**
+Wrap all promises with `wrap()`:
+
+```ts
+const fetchData = action(async () => {
+  const response = await wrap(fetch('/api/data')) // ✅ Wrapped
+  return response.json()
+}, 'fetchData')
+```
+
+<Warning>
+  Ensure your build target is **ES2017 or higher**. Lower targets transform async/await into `.then()` chains, which breaks context preservation.
+</Warning>
+
+### Issue: TypeScript errors after migration
+
+**Problem:**
+```ts
+const myAtom: Atom<number> = atom(0) // Type error
+```
+
+**Solution:**
+```ts
+import type { AtomLike, Atom } from '@reatom/core'
+
+// Atom is now for mutable atoms specifically
+const myAtom: Atom<number> = atom(0)
+
+// AtomLike is the generic interface
+function acceptsAnyAtom(a: AtomLike<number>) {
+  // ...
+}
+```
+
+## Package Deduplication
+
+After updating, deduplicate Reatom packages to avoid version conflicts:
+
+**NPM:**
+```bash
+npm i --prefer-dedupe @reatom/react@latest
+```
+
+**Yarn:**
+```bash
+yarn add @reatom/react@latest && yarn dedupe "@reatom/*"
+```
+
+**PNPM:**
+```bash
+pnpm rm @reatom/core @reatom/react && pnpm i @reatom/core@latest @reatom/react@latest
+```
+
+<Note>
+  Reatom core is a singleton package with internal state. Multiple versions can cause type incompatibilities and runtime errors.
+</Note>
+
+## Versioning Strategy
+
+Reatom v1000 uses epoch-based versioning:
+
+- **Epoch** (1000, 2000, etc.) - Major architectural changes
+- **Major** (1001, 1002, etc.) - Breaking changes within epoch
+- **Minor/Patch** - Standard SemVer
+
+The next epoch (v2000) is planned for 2026-2027.
+
+## Migration Checklist
+
+- [ ] Update all `@reatom/*` packages to v1000+
+- [ ] Deduplicate dependencies
+- [ ] Replace `Ctx` types with implicit context
+- [ ] Replace `Atom` with `AtomLike` where appropriate
+- [ ] Replace `AtomMut` with `Atom`
+- [ ] Change `atom(callback)` to `computed(callback)`
+- [ ] Change `ctx.spy(atom)` to `atom()`
+- [ ] Change `ctx.get(atom)` to `peek(atom)`
+- [ ] Change `atom(ctx, value)` to `atom.set(value)`
+- [ ] Change `ctx.schedule(promise)` to `wrap(promise)`
+- [ ] Replace `reatomAsync` with `action().extend(withAsync())`
+- [ ] Replace `reatomResource` with `computed().extend(withAsyncData())`
+- [ ] Replace `reaction` with `effect`
+- [ ] Replace extension methods with `extend()` calls
+- [ ] Update test helpers to use `createTestCtx`
+- [ ] Run full test suite
+- [ ] Check build target is ES2017+
+
+## Getting Help
+
+If you encounter issues during migration:
+
+- [GitHub Discussions](https://github.com/reatom/reatom/discussions) - Ask questions
+- [Discord](https://discord.gg/EPAKK5SNFh) - Real-time help
+- [Migration Examples](https://github.com/reatom/reatom/tree/v1000/examples) - Reference code
+
+## Further Reading
+
+- [History and Evolutionhttps://github.com/reatom/reatom - Why v1000 was created
+- [Performance Guide](/advanced/performance) - Optimize your migrated app
+- [DevTools Guide](/advanced/devtools) - Debug during migration

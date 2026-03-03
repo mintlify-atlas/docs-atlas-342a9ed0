@@ -1,0 +1,508 @@
+---
+title: Solid.js Integration
+description: Use Reatom state management with Solid.js applications using signals and fine-grained reactivity
+---
+
+The `@reatom/solid-js` package provides seamless integration between Reatom and Solid.js, combining Reatom's powerful state management with Solid's fine-grained reactivity system.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @reatom/solid-js @reatom/core solid-js
+```
+
+```bash yarn
+yarn add @reatom/solid-js @reatom/core solid-js
+```
+
+```bash pnpm
+pnpm add @reatom/solid-js @reatom/core solid-js
+```
+</CodeGroup>
+
+<Note>
+This package is currently in alpha. The API is stable but may receive updates.
+</Note>
+
+## Setup
+
+For SSR or isolated testing, provide the Reatom context to your Solid.js application:
+
+```tsx
+import { render } from 'solid-js/web'
+import { createContext } from '@reatom/core'
+import { reatomContext } from '@reatom/solid-js'
+import App from './App'
+
+const ctx = createContext()
+
+render(
+  () => (
+    <reatomContext.Provider value={ctx}>
+      <App />
+    </reatomContext.Provider>
+  ),
+  document.getElementById('app')!
+)
+```
+
+<Note>
+For client-only applications, you can skip the provider and use the global stack frame.
+</Note>
+
+## Core APIs
+
+### useAtom
+
+The primary hook for using Reatom atoms in Solid.js components:
+
+```tsx
+import { atom } from '@reatom/core'
+import { useAtom } from '@reatom/solid-js'
+
+const countAtom = atom(0, 'count')
+
+function Counter() {
+  const [count, setCount] = useAtom(countAtom)
+  
+  return (
+    <div>
+      <p>Count: {count()}</p>
+      <button onClick={() => setCount(count() + 1)}>Increment</button>
+      <button onClick={() => setCount(c => c + 1)}>Increment (updater)</button>
+    </div>
+  )
+}
+```
+
+**API Reference:**
+
+```tsx
+useAtom<State, Params>(target: AtomLike<State, Params>)
+  : [state: Accessor<State>, setState?: (...params: Params) => State]
+```
+
+**Returns:**
+- `[accessor, setter]`: Tuple containing:
+  - `accessor`: Solid.js signal accessor for the atom's state
+  - `setter`: Optional setter function (undefined for computed atoms)
+
+**Features:**
+- Automatic subscription management
+- Lazy subscription (only subscribes when accessed in tracking context)
+- Cleanup on component disposal
+- Full TypeScript support
+
+### withSolid Extension
+
+Add a `.solid` property to atoms for direct access to Solid.js accessors:
+
+```tsx
+import { atom } from '@reatom/core'
+import { withSolid } from '@reatom/solid-js'
+
+const countAtom = atom(0, 'count').extend(withSolid())
+
+function Counter() {
+  return (
+    <div>
+      <p>Count: {countAtom.solid()}</p>
+      <button onClick={() => countAtom.set(countAtom() + 1)}>
+        Increment
+      </button>
+    </div>
+  )
+}
+```
+
+**Global Extension:**
+
+Apply to all atoms automatically:
+
+```ts
+// setup.ts
+import { addGlobalExtension } from '@reatom/core'
+import { withSolid } from '@reatom/solid-js'
+
+addGlobalExtension(withSolid())
+
+// TypeScript declarations
+declare module '@reatom/core' {
+  interface Atom<State> extends SolidExt<State> {}
+  interface Computed<State> extends SolidExt<State> {}
+}
+```
+
+Now all atoms have a `.solid` property:
+
+```tsx
+import { atom, computed } from '@reatom/core'
+
+const countAtom = atom(0, 'count')
+const doubledAtom = computed(() => countAtom() * 2, 'doubled')
+
+function Display() {
+  return (
+    <div>
+      <p>Count: {countAtom.solid()}</p>
+      <p>Doubled: {doubledAtom.solid()}</p>
+    </div>
+  )
+}
+```
+
+### useFrame
+
+Access the current Reatom frame:
+
+```tsx
+import { useFrame } from '@reatom/solid-js'
+import { wrap } from '@reatom/core'
+
+function MyComponent() {
+  const frame = useFrame()
+  
+  const handleClick = () => {
+    wrap(() => {
+      // Your logic here
+    }, frame)
+  }
+  
+  return <button onClick={handleClick}>Click me</button>
+}
+```
+
+## Complete Examples
+
+### Counter with Computed Values
+
+```tsx
+import { atom, computed } from '@reatom/core'
+import { useAtom } from '@reatom/solid-js'
+
+const countAtom = atom(0, 'count')
+const doubledAtom = computed(() => countAtom() * 2, 'doubled')
+const tripledAtom = computed(() => countAtom() * 3, 'tripled')
+
+function Counter() {
+  const [count, setCount] = useAtom(countAtom)
+  const [doubled] = useAtom(doubledAtom)
+  const [tripled] = useAtom(tripledAtom)
+  
+  return (
+    <div>
+      <h2>Counter: {count()}</h2>
+      <p>Doubled: {doubled()}</p>
+      <p>Tripled: {tripled()}</p>
+      <button onClick={() => setCount(c => c + 1)}>+</button>
+      <button onClick={() => setCount(c => c - 1)}>-</button>
+      <button onClick={() => setCount(0)}>Reset</button>
+    </div>
+  )
+}
+```
+
+### Todo List Application
+
+```tsx
+import { atom, computed } from '@reatom/core'
+import { useAtom } from '@reatom/solid-js'
+import { createSignal, For } from 'solid-js'
+
+interface Todo {
+  id: number
+  text: string
+  completed: boolean
+}
+
+const todosAtom = atom<Todo[]>([], 'todos')
+
+const activeTodosAtom = computed(
+  () => todosAtom().filter(t => !t.completed),
+  'activeTodos'
+)
+
+const completedTodosAtom = computed(
+  () => todosAtom().filter(t => t.completed),
+  'completedTodos'
+)
+
+function TodoApp() {
+  const [todos, setTodos] = useAtom(todosAtom)
+  const [activeTodos] = useAtom(activeTodosAtom)
+  const [completedTodos] = useAtom(completedTodosAtom)
+  const [newTodo, setNewTodo] = createSignal('')
+  
+  const addTodo = () => {
+    const text = newTodo().trim()
+    if (text) {
+      setTodos([
+        ...todos(),
+        { id: Date.now(), text, completed: false }
+      ])
+      setNewTodo('')
+    }
+  }
+  
+  const toggleTodo = (id: number) => {
+    setTodos(
+      todos().map(todo =>
+        todo.id === id ? { ...todo, completed: !todo.completed } : todo
+      )
+    )
+  }
+  
+  const removeTodo = (id: number) => {
+    setTodos(todos().filter(todo => todo.id !== id))
+  }
+  
+  return (
+    <div>
+      <h1>Todo List</h1>
+      <p>
+        Active: {activeTodos().length} | Completed: {completedTodos().length}
+      </p>
+      
+      <div>
+        <input
+          value={newTodo()}
+          onInput={e => setNewTodo(e.currentTarget.value)}
+          onKeyPress={e => e.key === 'Enter' && addTodo()}
+          placeholder="Add a todo..."
+        />
+        <button onClick={addTodo}>Add</button>
+      </div>
+      
+      <ul>
+        <For each={todos()}>
+          {(todo) => (
+            <li>
+              <input
+                type="checkbox"
+                checked={todo.completed}
+                onChange={() => toggleTodo(todo.id)}
+              />
+              <span style={{ 
+                'text-decoration': todo.completed ? 'line-through' : 'none',
+                opacity: todo.completed ? 0.6 : 1
+              }}>
+                {todo.text}
+              </span>
+              <button onClick={() => removeTodo(todo.id)}>Delete</button>
+            </li>
+          )}
+        </For>
+      </ul>
+    </div>
+  )
+}
+```
+
+### Form with Validation
+
+```tsx
+import { atom, computed } from '@reatom/core'
+import { useAtom } from '@reatom/solid-js'
+import { Show } from 'solid-js'
+
+const emailAtom = atom('', 'email')
+const passwordAtom = atom('', 'password')
+
+const emailErrorAtom = computed(() => {
+  const email = emailAtom()
+  if (!email) return 'Email is required'
+  if (!email.includes('@')) return 'Invalid email format'
+  return null
+}, 'emailError')
+
+const passwordErrorAtom = computed(() => {
+  const password = passwordAtom()
+  if (!password) return 'Password is required'
+  if (password.length < 8) return 'Password must be at least 8 characters'
+  return null
+}, 'passwordError')
+
+const isValidAtom = computed(
+  () => !emailErrorAtom() && !passwordErrorAtom(),
+  'isValid'
+)
+
+function LoginForm() {
+  const [email, setEmail] = useAtom(emailAtom)
+  const [password, setPassword] = useAtom(passwordAtom)
+  const [emailError] = useAtom(emailErrorAtom)
+  const [passwordError] = useAtom(passwordErrorAtom)
+  const [isValid] = useAtom(isValidAtom)
+  
+  const handleSubmit = (e: Event) => {
+    e.preventDefault()
+    if (isValid()) {
+      console.log('Submitting:', { email: email(), password: password() })
+    }
+  }
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      <div>
+        <label>Email:</label>
+        <input
+          type="email"
+          value={email()}
+          onInput={e => setEmail(e.currentTarget.value)}
+        />
+        <Show when={emailError()}>
+          <span style={{ color: 'red' }}>{emailError()}</span>
+        </Show>
+      </div>
+      
+      <div>
+        <label>Password:</label>
+        <input
+          type="password"
+          value={password()}
+          onInput={e => setPassword(e.currentTarget.value)}
+        />
+        <Show when={passwordError()}>
+          <span style={{ color: 'red' }}>{passwordError()}</span>
+        </Show>
+      </div>
+      
+      <button type="submit" disabled={!isValid()}>
+        Login
+      </button>
+    </form>
+  )
+}
+```
+
+### Using .solid Extension
+
+```tsx
+import { atom, computed } from '@reatom/core'
+import { withSolid } from '@reatom/solid-js'
+import { createEffect } from 'solid-js'
+
+const countAtom = atom(0, 'count').extend(withSolid())
+const messageAtom = atom('Hello', 'message').extend(withSolid())
+
+const greetingAtom = computed(
+  () => `${messageAtom()}, count is ${countAtom()}`,
+  'greeting'
+).extend(withSolid())
+
+function Greeting() {
+  // Track changes with createEffect
+  createEffect(() => {
+    console.log('Greeting changed:', greetingAtom.solid())
+  })
+  
+  return (
+    <div>
+      <p>{greetingAtom.solid()}</p>
+      <button onClick={() => countAtom.set(countAtom() + 1)}>
+        Increment
+      </button>
+      <input
+        value={messageAtom.solid()}
+        onInput={e => messageAtom.set(e.currentTarget.value)}
+      />
+    </div>
+  )
+}
+```
+
+## TypeScript Support
+
+Full TypeScript support with proper type inference:
+
+```tsx
+import { atom, computed } from '@reatom/core'
+import { useAtom, withSolid } from '@reatom/solid-js'
+import type { Accessor } from 'solid-js'
+
+interface User {
+  id: number
+  name: string
+  email: string
+}
+
+const userAtom = atom<User | null>(null, 'user')
+const userNameAtom = computed(
+  () => userAtom()?.name ?? 'Guest',
+  'userName'
+)
+
+function UserProfile() {
+  const [user, setUser] = useAtom(userAtom)
+  const [userName] = useAtom(userNameAtom)
+  
+  // TypeScript knows the types:
+  // user: Accessor<User | null>
+  // setUser: (value: User | null) => User | null
+  // userName: Accessor<string>
+  
+  return (
+    <div>
+      <Show when={user()} fallback={<p>No user</p>}>
+        <p>Name: {userName()}</p>
+      </Show>
+    </div>
+  )
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use useAtom for most cases">
+    The `useAtom` hook provides the cleanest API for using atoms in Solid.js components.
+  </Step>
+  
+  <Step title="Leverage withSolid for convenience">
+    The `.solid` extension provides direct access to accessors without calling hooks.
+  </Step>
+  
+  <Step title="Combine with Solid's primitives">
+    Reatom atoms work seamlessly with Solid's `createEffect`, `createMemo`, and other primitives.
+  </Step>
+  
+  <Step title="Use computed atoms for derived state">
+    Reatom's computed atoms integrate perfectly with Solid's fine-grained reactivity.
+  </Step>
+</Steps>
+
+## SSR and Testing
+
+For server-side rendering or isolated tests, always provide a context:
+
+```tsx
+import { renderToString } from 'solid-js/web'
+import { createContext, clearStack } from '@reatom/core'
+import { reatomContext } from '@reatom/solid-js'
+import App from './App'
+
+// Clear global stack for SSR
+clearStack()
+
+const ctx = createContext()
+
+const html = renderToString(() => (
+  <reatomContext.Provider value={ctx}>
+    <App />
+  </reatomContext.Provider>
+))
+```
+
+## Performance Characteristics
+
+- **Lazy subscriptions**: Atoms only subscribe when accessors are called in tracking contexts
+- **Automatic cleanup**: Subscriptions are cleaned up when components are disposed
+- **Fine-grained updates**: Only components that read changed atoms re-render
+- **Cached accessors**: The same accessor instance is reused across renders
+
+## Next Steps
+
+- Learn about [Core Concepts](/core/atom) for atoms and state management
+- Explore [Asynchttps://github.com/reatom/reatom/tree/main/packages for handling asynchronous operations
+- Check out [Formshttps://github.com/reatom/reatom/tree/main/packages for advanced form handling

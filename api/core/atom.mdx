@@ -1,0 +1,188 @@
+---
+title: 'atom()'
+description: 'Creates a mutable state container that can be read and updated'
+---
+
+## Overview
+
+The `atom()` function is the core primitive for storing and updating mutable state in Reatom. Atoms can be called as functions to read their current value or updated using the `.set()` method.
+
+## Import
+
+```typescript
+import { atom } from '@reatom/core'
+```
+
+## Signature
+
+```typescript
+function atom<T>(): Atom<T | undefined>
+function atom<T>(createState: () => T, name?: string): Atom<T>
+function atom<T>(initState: T, name?: string): Atom<T>
+```
+
+## Parameters
+
+<ParamField path="initState" type="T | (() => T)">
+  The initial state value, or a function that returns the initial state. If a function is provided, it will be called once during atom initialization.
+</ParamField>
+
+<ParamField path="name" type="string" optional>
+  Optional name for the atom. Useful for debugging and dev tools. If not provided, an auto-generated name will be used.
+</ParamField>
+
+## Returns
+
+<ResponseField name="atom" type="Atom<T>">
+  An atom instance with the following interface:
+  
+  <Expandable title="Atom Interface">
+    <ResponseField name="()" type="() => T">
+      Call the atom as a function to read its current state.
+    </ResponseField>
+    
+    <ResponseField name="set" type="(newState: T) => T">
+      Update the atom's state to a new value. Returns the new state.
+    </ResponseField>
+    
+    <ResponseField name="set" type="(update: (state: T) => T) => T">
+      Update the atom's state using a function that receives the previous state. Returns the new state.
+    </ResponseField>
+    
+    <ResponseField name="subscribe" type="(cb?: (state: T) => any) => Unsubscribe">
+      Subscribe to state changes. The callback is called immediately with the current state, then whenever the state changes. Returns an unsubscribe function.
+    </ResponseField>
+    
+    <ResponseField name="extend" type="Extend<this>">
+      Apply extensions to add functionality to the atom. See [extend()](/api/core/extend) for details.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Usage
+
+```typescript
+import { atom } from '@reatom/core'
+
+// Create an atom with an initial value
+const counter = atom(0, 'counter')
+
+// Read the current value
+const value = counter() // -> 0
+
+// Update with a new value
+counter.set(5) // Sets value to 5
+
+// Update with a function
+counter.set((prev) => prev + 1) // Sets value to 6
+```
+
+### Using a Function for Initial State
+
+```typescript
+// Lazily compute the initial state
+const timestamp = atom(() => Date.now(), 'timestamp')
+
+// The function is only called once during initialization
+const value = timestamp() // -> 1234567890
+```
+
+### Subscribing to Changes
+
+```typescript
+const count = atom(0, 'count')
+
+// Subscribe to changes
+const unsubscribe = count.subscribe((state) => {
+  console.log('Count changed:', state)
+})
+// Logs immediately: "Count changed: 0"
+
+count.set(1)
+// Logs: "Count changed: 1"
+
+count.set(2)
+// Logs: "Count changed: 2"
+
+// Stop listening to changes
+unsubscribe()
+```
+
+### Atom Without Initial State
+
+```typescript
+// Create an atom that starts as undefined
+const maybeValue = atom<string>()
+
+maybeValue() // -> undefined
+maybeValue.set('hello')
+maybeValue() // -> 'hello'
+```
+
+### Complex State
+
+```typescript
+interface User {
+  id: string
+  name: string
+  email: string
+}
+
+const user = atom<User>(
+  {
+    id: '1',
+    name: 'Alice',
+    email: 'alice@example.com'
+  },
+  'user'
+)
+
+// Update using a function
+user.set((prev) => ({
+  ...prev,
+  name: 'Alice Smith'
+}))
+```
+
+## Type Information
+
+### Atom Interface
+
+```typescript
+interface Atom<State = any, Params extends any[] = [newState: State]>
+  extends AtomLike<State, []> {
+  
+  // Update with a new value
+  set(...params: Params): State
+  
+  // Update with a function
+  set(update: (state: State) => State): State
+}
+```
+
+### AtomLike Interface
+
+```typescript
+interface AtomLike<State = any, Params extends any[] = any[], Payload = State> {
+  // Call to read state
+  (...params: Params): Payload
+  
+  // Extension system
+  extend: Extend<this>
+  
+  // Subscribe to changes
+  subscribe: (cb?: (state: State) => any) => Unsubscribe
+  
+  // Internal metadata
+  __reatom: AtomMeta
+}
+```
+
+## Related
+
+- [computed()](/api/core/computed) - Create derived state that automatically recalculates
+- [action()](/api/core/action) - Create logic and side effect containers
+- [extend()](/api/core/extend) - Add functionality to atoms
+- [effect()](/api/core/effect) - Create reactive side effects

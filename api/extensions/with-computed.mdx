@@ -1,0 +1,272 @@
+---
+title: withComputed
+description: A middleware extension that enhances an atom with computed capabilities
+---
+
+## Overview
+
+The `withComputed` extension enhances an atom with computed functionality, allowing you to derive state based on reactive dependencies. It's a powerful way to add computed behavior to existing atoms without converting them to computed atoms.
+
+## Type Signature
+
+```typescript
+function withComputed<Target extends AtomLike>(
+  computed: (state: AtomState<Target>) => AtomState<Target>,
+  options?: { tail?: boolean }
+): Ext<Target>
+```
+
+## Parameters
+
+<ParamField path="computed" type="function" required>
+  A function that computes the new state based on the current state.
+  
+  **Parameters:**
+  - `state`: The current state of the atom
+  
+  **Returns:** The computed state
+</ParamField>
+
+<ParamField path="options" type="object" optional>
+  <Expandable title="properties">
+    <ParamField path="tail" type="boolean" default="true" optional>
+      Determines the order of the passed computed calling.
+      
+      - `true` (default): Computed runs after the atom's update
+      - `false`: Computed runs before the atom's update
+      
+      **Warning:** Use `false` only for computed with fixed size of dependencies.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Examples
+
+### Basic Computed for Atom
+
+```typescript
+import { atom } from '@reatom/core'
+import { withComputed } from '@reatom/core/extensions'
+
+const param = atom(1, 'param')
+
+const data = atom(0, 'data').extend(
+  withComputed(() => param())
+)
+
+const track = subscribe(data)
+console.log(data()) // → 1
+
+param.set(3)
+notify()
+console.log(data()) // → 3
+```
+
+### Manual Update with Computed Fallback
+
+```typescript
+const param = atom(1, 'param')
+
+const data = atom(0, 'data').extend(
+  withComputed(() => param())
+)
+
+data() // → 1 (from computed)
+
+data.set(2) // manual update
+notify()
+console.log(data()) // → 2 (manual value preserved)
+
+param.set(3) // dependency changes
+notify()
+console.log(data()) // → 3 (computed takes over)
+```
+
+### Combining Multiple Computations
+
+```typescript
+const param1 = atom(1, 'param1')
+const param2 = atom(2, 'param2')
+
+const data = computed(
+  () => param2(),
+  'data'
+).extend(
+  withComputed(
+    () => param1(),
+    { tail: false } // computed runs first
+  )
+)
+
+console.log(data()) // → 2
+
+param1.set(10)
+console.log(data()) // → 10
+
+param2.set(20)
+console.log(data()) // → 20
+```
+
+### Conditional Computed
+
+```typescript
+const enabled = atom(false, 'enabled')
+const source = atom(0, 'source')
+
+const data = atom(100, 'data').extend(
+  withComputed((state) => {
+    if (enabled()) {
+      return source()
+    }
+    return state // keep current value
+  })
+)
+
+console.log(data()) // → 100
+
+enabled.set(true)
+console.log(data()) // → 0 (from source)
+
+source.set(42)
+console.log(data()) // → 42
+
+enabled.set(false)
+console.log(data()) // → 42 (keeps last value)
+```
+
+### Transform State
+
+```typescript
+const multiplier = atom(2, 'multiplier')
+
+const value = atom(5, 'value').extend(
+  withComputed((state) => {
+    const mult = multiplier()
+    return state * mult
+  })
+)
+
+console.log(value()) // → 10 (5 * 2)
+
+multiplier.set(3)
+console.log(value()) // → 15 (5 * 3)
+
+value.set(10)
+console.log(value()) // → 30 (10 * 3)
+```
+
+### Sync Atom with External Source
+
+```typescript
+const externalData = atom({ value: 0 }, 'externalData')
+
+const syncedAtom = atom({ value: 0 }, 'syncedAtom').extend(
+  withComputed(() => externalData())
+)
+
+// Always stays in sync with external data
+externalData.set({ value: 42 })
+console.log(syncedAtom()) // → { value: 42 }
+```
+
+### Computed with Dependencies Check
+
+```typescript
+const param1 = atom(1, 'param1')
+const param2 = atom(2, 'param2')
+
+const data = computed(
+  () => param2(),
+  'data'
+).extend(
+  withComputed(
+    () => param1(),
+    { tail: false }
+  )
+)
+
+// Both dependencies are tracked
+const dataPubs = context().state.store.get(data)!.pubs
+const hasParam1 = dataPubs.some((pub) => pub?.atom === param1)
+const hasParam2 = dataPubs.some((pub) => pub?.atom === param2)
+
+console.log(hasParam1) // → true
+console.log(hasParam2) // → true
+```
+
+## Use Cases
+
+### Default Value Pattern
+
+```typescript
+const defaultValue = atom(10, 'defaultValue')
+
+const userValue = atom<number | null>(null, 'userValue').extend(
+  withComputed((state) => {
+    return state ?? defaultValue()
+  })
+)
+
+console.log(userValue()) // → 10 (default)
+
+userValue.set(42)
+console.log(userValue()) // → 42 (user value)
+
+userValue.set(null)
+console.log(userValue()) // → 10 (back to default)
+```
+
+### Fallback Chain
+
+```typescript
+const primary = atom<string | null>(null, 'primary')
+const secondary = atom<string | null>(null, 'secondary')
+const fallback = atom('default', 'fallback')
+
+const value = atom<string>('', 'value').extend(
+  withComputed(() => {
+    return primary() ?? secondary() ?? fallback()
+  })
+)
+
+console.log(value()) // → 'default'
+
+secondary.set('backup')
+console.log(value()) // → 'backup'
+
+primary.set('main')
+console.log(value()) // → 'main'
+```
+
+### Derived State with Manual Override
+
+```typescript
+const autoCalculated = atom(100, 'autoCalculated')
+const manualOverride = atom<number | null>(null, 'manualOverride')
+
+const finalValue = atom(0, 'finalValue').extend(
+  withComputed(() => {
+    return manualOverride() ?? autoCalculated()
+  })
+)
+
+// Auto mode
+console.log(finalValue()) // → 100
+
+autoCalculated.set(200)
+console.log(finalValue()) // → 200
+
+// Manual override
+manualOverride.set(500)
+console.log(finalValue()) // → 500
+
+// Back to auto
+manualOverride.set(null)
+console.log(finalValue()) // → 200
+```
+
+## Related
+
+- [computed](/api/core/computed) - Create pure computed atoms
+- [withChangeHook](/api/extensions/with-change-hook) - React to state changes
+- [atom](/api/core/atom) - Base atom primitive

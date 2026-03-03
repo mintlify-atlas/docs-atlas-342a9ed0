@@ -1,0 +1,510 @@
+---
+title: Async Operations
+description: Master async operations in Reatom with withAsync, withAsyncData, and status tracking
+---
+
+# Async Operations
+
+Reatom provides powerful utilities for managing async operations with built-in state tracking, error handling, and automatic abort capabilities.
+
+## Core Concepts
+
+Reatom's async extensions transform atoms and actions into powerful async state machines with:
+
+- **Pending state tracking** - Know when operations are in progress
+- **Error handling** - Automatic error capture and parsing
+- **Status tracking** - Detailed lifecycle state information
+- **Data caching** - Store and access the latest successful results
+- **Abort control** - Cancel pending operations automatically
+
+## Basic Async Actions
+
+Use `withAsync()` to add async capabilities to any action that returns a promise:
+
+```ts
+import { action, wrap } from '@reatom/core'
+import { withAsync } from '@reatom/core/async'
+
+const fetchUser = action(async (userId: string) => {
+  const response = await wrap(fetch(`/api/users/${userId}`))
+  return await wrap(response.json())
+}, 'fetchUser').extend(withAsync())
+
+// Track loading state
+fetchUser.ready()    // → true when complete, false when pending
+fetchUser.pending()  // → number of pending operations
+fetchUser.error()    // → latest error if any
+```
+
+<Note>
+  Always use `wrap()` around promises to ensure proper context binding and abort handling.
+</Note>
+
+## Async Data Management
+
+`withAsyncData()` extends `withAsync()` with automatic data storage:
+
+```ts
+import { computed, atom } from '@reatom/core'
+import { withAsyncData, wrap } from '@reatom/core'
+
+const userId = atom('1', 'userId')
+
+const userData = computed(async () => {
+  const id = userId()
+  const response = await wrap(fetch(`/api/users/${id}`))
+  if (!response.ok) throw new Error('Failed to fetch user')
+  return await wrap(response.json())
+}, 'userData').extend(withAsyncData())
+
+// Access fetched data and states
+userData.data()   // → the fetched user data
+userData.error()  // → error if fetch failed
+userData.ready()  // → false while loading
+```
+
+### With Initial State
+
+Provide type-safe initial values:
+
+```ts
+const userData = computed(async () => {
+  // ... fetch logic
+  return { name: '', email: '' }
+}, 'userData').extend(
+  withAsyncData({ 
+    initState: { name: '', email: '' } 
+  })
+)
+
+// userData.data() is never undefined
+console.log(userData.data().name) // ✓ Type-safe access
+```
+
+## Status Tracking
+
+Enable detailed status tracking with the `status` option:
+
+<Steps>
+
+### Enable Status
+
+```ts
+const fetchUser = action(async (id: string) => {
+  const res = await wrap(fetch(`/api/users/${id}`))
+  return await wrap(res.json())
+}, 'fetchUser').extend(withAsync({ status: true }))
+```
+
+### Access Status Properties
+
+```ts
+const status = fetchUser.status()
+
+// Current state flags
+status.isPending     // Operation in progress
+status.isFulfilled   // Last operation succeeded
+status.isRejected    // Last operation failed
+status.isSettled     // Operation completed
+
+// Historical tracking
+status.isFirstPending  // First-ever operation
+status.isEverPending   // At least one operation started
+status.isEverSettled   // At least one operation completed
+```
+
+### Use for Conditional UI
+
+```tsx
+function UserProfile() {
+  const status = fetchUser.status()
+  
+  if (status.isFirstPending) {
+    return <Skeleton /> // Show skeleton only on first load
+  }
+  
+  if (status.isPending) {
+    return <Spinner /> // Show spinner on subsequent loads
+  }
+  
+  if (status.isRejected) {
+    return <ErrorMessage error={fetchUser.error()} />
+  }
+  
+  return <UserData data={fetchUser.data()} />
+}
+```
+
+</Steps>
+
+## Error Handling
+
+### Custom Error Parsing
+
+Transform errors into a consistent format:
+
+```ts
+interface ApiError {
+  message: string
+  code: number
+  field?: string
+}
+
+const fetchUser = action(async (id: string) => {
+  const res = await wrap(fetch(`/api/users/${id}`))
+  if (!res.ok) {
+    const error = await wrap(res.json())
+    throw error
+  }
+  return await wrap(res.json())
+}, 'fetchUser').extend(
+  withAsync<ApiError>({
+    parseError: (error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error) {
+        return error as ApiError
+      }
+      return { message: String(error), code: 500 }
+    }
+  })
+)
+
+// Type-safe error access
+const error = fetchUser.error()
+if (error) {
+  console.log(error.code, error.message) // ✓ Typed as ApiError
+}
+```
+
+### Error Reset Strategies
+
+<Tabs items={['onCall (default)', 'onFulfill', 'Never']}>
+
+<Tab value="onCall (default)">
+Clear errors when the operation starts:
+
+```ts
+const action = action(async () => {
+  // ...
+}).extend(withAsync({ resetError: 'onCall' }))
+
+// Error is cleared immediately when called
+await action()
+```
+</Tab>
+
+<Tab value="onFulfill">
+Keep errors visible until success:
+
+```ts
+const action = action(async () => {
+  // ...
+}).extend(withAsync({ resetError: 'onFulfill' }))
+
+// Error persists across failed retries
+// Only cleared on successful completion
+```
+</Tab>
+
+<Tab value="Never">
+Manually manage error state:
+
+```ts
+const action = action(async () => {
+  // ...
+}).extend(withAsync({ resetError: null }))
+
+// Manually clear errors
+action.error.set(undefined)
+```
+</Tab>
+
+</Tabs>
+
+## Retry Logic
+
+### Retry Actions
+
+Enable parameter caching to retry actions:
+
+```ts
+const fetchUser = action(async (userId: string) => {
+  const res = await wrap(fetch(`/api/users/${userId}`))
+  return await wrap(res.json())
+}, 'fetchUser').extend(
+  withAsync({ cacheParams: true })
+)
+
+// Call with params
+await wrap(fetchUser('123'))
+
+// Retry with cached params
+await wrap(fetchUser.retry())
+```
+
+### Retry Computed Atoms
+
+Computed atoms can retry without caching:
+
+```ts
+import { retryComputed } from '@reatom/core/methods'
+
+const userData = computed(async () => {
+  const id = userId()
+  const res = await wrap(fetch(`/api/users/${id}`))
+  return await wrap(res.json())
+}, 'userData').extend(withAsync())
+
+// First call fails
+await wrap(userData().catch(noop))
+
+// Retry the computation
+await wrap(retryComputed(userData))
+
+// Or use the retry method
+await wrap(userData.retry())
+```
+
+## Lifecycle Hooks
+
+React to async events with lifecycle actions:
+
+```ts
+import { withCallHook } from '@reatom/core'
+
+const fetchUser = action(async (id: string) => {
+  const res = await wrap(fetch(`/api/users/${id}`))
+  return await wrap(res.json())
+}, 'fetchUser').extend(withAsync())
+
+// On successful completion
+fetchUser.onFulfill.extend(
+  withCallHook(({ payload, params }) => {
+    console.log('Fetched user:', payload)
+    console.log('With ID:', params[0])
+  })
+)
+
+// On error
+fetchUser.onReject.extend(
+  withCallHook(({ error, params }) => {
+    console.error('Failed to fetch user:', params[0])
+    console.error('Error:', error)
+  })
+)
+
+// On completion (success or error)
+fetchUser.onSettle.extend(
+  withCallHook((result) => {
+    if ('payload' in result) {
+      console.log('Success:', result.payload)
+    } else {
+      console.log('Error:', result.error)
+    }
+  })
+)
+```
+
+## Concurrent Operations
+
+### Pending Counter
+
+Track multiple concurrent operations:
+
+```ts
+const fetchUser = action(async (id: string) => {
+  await wrap(sleep(1000))
+  return { id, name: 'User' }
+}, 'fetchUser').extend(withAsync())
+
+// Start multiple operations
+fetchUser('1')
+fetchUser('2')
+fetchUser('3')
+
+console.log(fetchUser.pending()) // → 3
+
+// Wait for all to complete
+await wrap(sleep(1100))
+console.log(fetchUser.pending()) // → 0
+console.log(fetchUser.ready())   // → true
+```
+
+### Automatic Abort
+
+Async operations are automatically aborted when:
+- The atom's dependencies change (for computed atoms)
+- A new operation starts (for actions with abort)
+- The component unmounts (in React/framework integrations)
+
+```ts
+import { withAbort } from '@reatom/core'
+
+const searchQuery = atom('', 'searchQuery')
+
+const searchResults = computed(async () => {
+  const query = searchQuery()
+  // Automatically aborted when searchQuery changes
+  const res = await wrap(fetch(`/api/search?q=${query}`))
+  return await wrap(res.json())
+}, 'searchResults').extend(withAsyncData())
+
+// When searchQuery changes, previous fetch is aborted
+searchQuery.set('react')  // Starts fetch 1
+searchQuery.set('reatom') // Aborts fetch 1, starts fetch 2
+```
+
+## Best Practices
+
+<Warning>
+  **Always use `wrap()` around promises** - This ensures proper context binding and enables automatic abort handling.
+</Warning>
+
+### 1. Use withAsyncData for Data Fetching
+
+When you need to store results, use `withAsyncData()` instead of `withAsync()`:
+
+```ts
+// ✓ Good - stores data automatically
+const userData = computed(async () => {
+  return await wrap(fetchUser())
+}).extend(withAsyncData())
+
+// ✗ Bad - no data storage
+const userData = computed(async () => {
+  return await wrap(fetchUser())
+}).extend(withAsync())
+```
+
+### 2. Enable Status for Complex UIs
+
+Use status tracking when you need fine-grained loading states:
+
+```ts
+const fetchData = action(async () => {
+  // ...
+}).extend(withAsync({ status: true }))
+
+// Differentiate first load from subsequent loads
+if (fetchData.status().isFirstPending) {
+  return <Skeleton />
+}
+```
+
+### 3. Handle Errors Gracefully
+
+Always provide error handling:
+
+```ts
+import { noop } from '@reatom/core'
+
+// Catch errors to prevent unhandled rejections
+await wrap(fetchUser()).catch(noop)
+
+// Or handle errors in UI
+if (fetchUser.error()) {
+  return <ErrorMessage error={fetchUser.error()} />
+}
+```
+
+### 4. Use Custom Error Types
+
+Define consistent error shapes:
+
+```ts
+interface AppError {
+  message: string
+  code: string
+  retryable: boolean
+}
+
+const fetchData = action(async () => {
+  // ...
+}).extend(
+  withAsync<AppError>({
+    parseError: (error) => ({
+      message: String(error),
+      code: 'UNKNOWN',
+      retryable: true
+    })
+  })
+)
+```
+
+## Common Patterns
+
+### Polling
+
+```ts
+import { effect, wrap, sleep } from '@reatom/core'
+
+const pollInterval = atom(5000, 'pollInterval')
+
+const pollData = action(async () => {
+  while (true) {
+    const res = await wrap(fetch('/api/status'))
+    const data = await wrap(res.json())
+    dataAtom.set(data)
+    await wrap(sleep(pollInterval()))
+  }
+}, 'pollData').extend(withAbort())
+
+// Start polling
+effect(() => {
+  pollData()
+})
+```
+
+### Optimistic Updates
+
+```ts
+const updateUser = action(async (updates: Partial<User>) => {
+  // Optimistically update
+  const prevUser = userAtom()
+  userAtom.set({ ...prevUser, ...updates })
+  
+  try {
+    const res = await wrap(fetch('/api/user', {
+      method: 'PATCH',
+      body: JSON.stringify(updates)
+    }))
+    const updated = await wrap(res.json())
+    userAtom.set(updated)
+    return updated
+  } catch (error) {
+    // Revert on error
+    userAtom.set(prevUser)
+    throw error
+  }
+}, 'updateUser').extend(withAsync())
+```
+
+### Sequential Operations
+
+```ts
+const setupAccount = action(async (email: string) => {
+  // Step 1: Create user
+  const user = await wrap(createUser(email))
+  
+  // Step 2: Send verification email
+  await wrap(sendVerificationEmail(user.id))
+  
+  // Step 3: Create default settings
+  await wrap(createSettings(user.id))
+  
+  return user
+}, 'setupAccount').extend(
+  withAsyncData({ status: true })
+)
+
+// Track progress through status
+const status = setupAccount.status()
+if (status.isPending) {
+  return <Progress />
+}
+```
+
+## Related APIs
+
+- [withAsync()](/api/async/with-async) - Add async capabilities to atoms/actions
+- [withAsyncData()](/api/async/with-async-data) - Add async capabilities with data storage
+- [withAsyncStatus()](/api/async/with-async-status) - Add detailed status tracking

@@ -1,80 +1,274 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Build your first Reatom application in minutes with a counter example
 ---
 
-## Get started in three steps
+# Quick Start
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through building a simple counter application with Reatom and React. You'll learn the core concepts while creating a working example.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Make sure you have Reatom installed:
 
-### Step 2: Deploy your changes
+```bash
+npm install @reatom/core @reatom/react
+```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+See the [Installation](/installation) guide for other package managers.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Building a Counter
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+Let's build a counter app step by step to understand Reatom's core primitives.
 
-### Step 3: Go live
+<Steps>
+  <Step title="Create an atom for the counter state">
+    An **atom** is the base state container in Reatom. It holds a single value that can be read and updated.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```typescript
+    import { atom } from '@reatom/core'
 
-## Next steps
+    const counter = atom(0)
+    ```
 
-Now that you have your docs running, explore these key features:
+    You can read and update atoms directly:
 
-<CardGroup cols={2}>
+    ```typescript
+    // Read the atom state
+    console.log(counter()) // 0
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    // Write a new state to the atom
+    counter.set(1)
+    console.log(counter()) // 1
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+    // Update using a function
+    counter.set((state) => state + 5)
+    console.log(counter()) // 6
+    ```
+  </Step>
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+  <Step title="Create a computed value">
+    A **computed** creates lazy memoized computations that automatically update when dependencies change.
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+    ```typescript
+    import { atom, computed } from '@reatom/core'
 
-</CardGroup>
+    const counter = atom(0)
+    const isEven = computed(() => counter() % 2 === 0)
+
+    console.log(isEven()) // true
+
+    counter.set(1)
+    console.log(isEven()) // false
+    ```
+
+    <Tip>
+      Computed values are lazy - they only recalculate when accessed and their dependencies have changed.
+    </Tip>
+  </Step>
+
+  <Step title="Create the Counter component">
+    Use `reatomComponent` to create a reactive React component that automatically subscribes to atoms.
+
+    ```tsx Counter.tsx
+    import { atom, computed } from '@reatom/core'
+    import { reatomComponent } from '@reatom/react'
+
+    const counter = atom(0)
+    const isEven = computed(() => counter() % 2 === 0)
+
+    const Counter = reatomComponent(() => (
+      <section>
+        <p>
+          {counter()} is {isEven() ? 'even' : 'odd'}
+        </p>
+        <button onClick={() => counter.set(v => v + 1)}>Increment</button>
+      </section>
+    ))
+
+    export default Counter
+    ```
+
+    <Note>
+      The coolest thing about `reatomComponent` is that you can use reactive states (atoms) in any order without the rules of hooks!
+    </Note>
+  </Step>
+
+  <Step title="Add the component to your app">
+    Import and use your Counter component like any other React component:
+
+    ```tsx App.tsx
+    import Counter from './Counter'
+
+    function App() {
+      return (
+        <div className="App">
+          <h1>My Counter App</h1>
+          <Counter />
+        </div>
+      )
+    }
+
+    export default App
+    ```
+  </Step>
+</Steps>
+
+## Complete Example
+
+Here's the full counter example with all the code together:
+
+<CodeGroup>
+
+```tsx Counter.tsx
+import { atom, computed } from '@reatom/core'
+import { reatomComponent } from '@reatom/react'
+
+const counter = atom(0)
+const isEven = computed(() => counter() % 2 === 0)
+
+const Counter = reatomComponent(() => (
+  <section>
+    <p>
+      {counter()} is {isEven() ? 'even' : 'odd'}
+    </p>
+    <button onClick={() => counter.set(v => v + 1)}>Increment</button>
+  </section>
+))
+
+export default Counter
+```
+
+```tsx App.tsx
+import Counter from './Counter'
+
+function App() {
+  return (
+    <div className="App">
+      <h1>My Counter App</h1>
+      <Counter />
+    </div>
+  )
+}
+
+export default App
+```
+
+</CodeGroup>
+
+## Understanding Effects
+
+**Effects** let you react to state changes immediately. They're similar to computed but run automatically after creation.
+
+```typescript
+import { atom, computed, effect } from '@reatom/core'
+
+const counter = atom(0)
+const isEven = computed(() => counter() % 2 === 0)
+
+effect(() => {
+  console.log(`${counter()} is ${isEven() ? 'even' : 'odd'}`)
+})
+
+// This will log: "0 is even"
+
+counter.set(1)
+// This will log: "1 is odd"
+```
+
+<Tip>
+  Effects are perfect for running long-lived processes like API polling or timers that work independently of the UI.
+</Tip>
+
+## Organizing with Actions
+
+As your app grows, you can organize complex operations using actions with the `extend` method:
+
+```typescript
+import { atom } from '@reatom/core'
+
+export const list = atom([], 'list').extend((target) => ({
+  isLoading: atom(false, `${target.name}.isLoading`),
+  async load(page: number) {
+    target.isLoading.set(true)
+    const response = await fetch(`/api/list?page=${page}`)
+    const payload = await response.json()
+    target.set(payload)
+    target.isLoading.set(false)
+  },
+}))
+
+list.load(1)
+console.log(list.isLoading())
+```
+
+## Real-World Example: Search with Async Data
+
+Here's a more complex example from the Reatom source code showing async data handling:
+
+```typescript
+import { atom, computed, withAsyncData, sleep, wrap } from '@reatom/core'
+import { searchIssues } from './api'
+
+export const issueQuery = atom('', 'issueQuery')
+export const issuePage = atom(0, 'issuePage')
+export const issuePerPage = atom(10, 'issuePerPage')
+
+export const issuesResource = computed(async () => {
+  const query = issueQuery()
+
+  if (!query) {
+    return {
+      items: [],
+      total_count: 0,
+      incomplete_results: false,
+    }
+  }
+
+  // Debounce the search
+  await wrap(sleep(250))
+
+  const filters = {
+    query,
+    page: issuePage(),
+    perPage: issuePerPage(),
+  }
+
+  return searchIssues(filters)
+}, 'issuesResource').extend(withAsyncData())
+
+export const isIssuesLoading = computed(
+  () => !issuesResource.ready(),
+  'isIssuesLoading',
+)
+export const issuesError = issuesResource.error
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  The `withAsyncData` extension adds helpful properties like `ready()`, `data()`, and `error()` to track async operations.
 </Note>
+
+## Next Steps
+
+Now that you've built your first Reatom application, explore these topics:
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts: Atoms" icon="atom" href="/core/atom">
+    Deep dive into atoms and state management
+  </Card>
+  <Card title="Core Concepts: Computed" icon="calculator" href="/core/computed">
+    Master lazy memoized computations
+  </Card>
+  <Card title="Core Concepts: Effects" icon="wand-magic-sparkles" href="/core/effects">
+    Learn about reactive side effects
+  </Card>
+  <Card title="Async Operations" icon="clock" href="/guides/async-operations">
+    Handle async data and API calls
+  </Card>
+</CardGroup>
+
+## Try the Template
+
+Want to see a full-featured example? Check out the official React template with search, filtering, and pagination:
+
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/reatom/reatom/tree/v1000/examples/react-search)

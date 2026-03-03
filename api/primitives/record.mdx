@@ -1,0 +1,287 @@
+---
+title: reatomRecord
+description: A primitive atom for managing record/object state with convenient merge and reset operations
+---
+
+## Overview
+
+`reatomRecord` creates an atom that manages record (object) state with built-in methods for merging partial updates, omitting keys, and resetting to initial values. It's ideal for managing form state, settings, or any structured object data.
+
+## Import
+
+```typescript
+import { reatomRecord } from '@reatom/core'
+```
+
+## Type Signature
+
+```typescript
+interface RecordAtom<T extends Rec> extends Atom<T> {
+  merge: Action<[slice: Partial<T>], T>
+  omit: Action<Array<keyof T>, T>
+  reset: Action<Array<keyof T>, T>
+}
+
+function reatomRecord<T extends Rec>(
+  initState: Exclude<T, Fn>,
+  name?: string
+): RecordAtom<T>
+```
+
+## Parameters
+
+<ParamField path="initState" type="Exclude<T, Fn>" required>
+  The initial record/object value. Must be a plain object (not a function)
+</ParamField>
+
+<ParamField path="name" type="string" default="'recordAtom'">
+  Optional name for the atom, useful for debugging
+</ParamField>
+
+## Methods
+
+### merge
+
+Merges a partial update into the record. Only triggers an update if at least one value has changed.
+
+<ParamField path="slice" type="Partial<T>">
+  A partial object with keys to update
+</ParamField>
+
+**Returns:** `T` - The updated record
+
+```typescript
+const person = reatomRecord({
+  civis: true,
+  paterfamilias: true,
+  servus: false,
+  vir: true,
+  coniugium: false,
+  senator: true,
+})
+
+person.merge({
+  civis: false,
+  servus: true,
+  senator: false,
+})
+
+console.log(person())
+// {
+//   civis: false,
+//   paterfamilias: true,
+//   servus: true,
+//   vir: true,
+//   coniugium: false,
+//   senator: false,
+// }
+```
+
+### omit
+
+Removes specified keys from the record.
+
+<ParamField path="...keys" type="Array<keyof T>">
+  Keys to remove from the record
+</ParamField>
+
+**Returns:** `T` - The updated record with keys removed
+
+```typescript
+const person = reatomRecord({
+  civis: true,
+  paterfamilias: true,
+  servus: false,
+  vir: true,
+  coniugium: false,
+  senator: true,
+})
+
+person.omit('coniugium')
+
+console.log(person())
+// {
+//   civis: true,
+//   paterfamilias: true,
+//   servus: false,
+//   vir: true,
+//   senator: true,
+// }
+```
+
+### reset
+
+Resets specified keys (or all keys if none specified) to their initial values.
+
+<ParamField path="...keys" type="Array<keyof T>">
+  Keys to reset. If empty, resets the entire record to initial state
+</ParamField>
+
+**Returns:** `T` - The updated record
+
+```typescript
+const person = reatomRecord({
+  civis: true,
+  servus: false,
+  senator: true,
+})
+
+person.merge({ civis: false, servus: true })
+console.log(person()) // { civis: false, servus: true, senator: true }
+
+// Reset specific keys
+person.reset('civis', 'servus')
+console.log(person()) // { civis: true, servus: false, senator: true }
+
+// Reset all keys
+person.merge({ senator: false })
+person.reset()
+console.log(person()) // { civis: true, servus: false, senator: true }
+```
+
+## Basic Usage
+
+```typescript
+import { reatomRecord } from '@reatom/core'
+
+// Create a record atom
+const userSettings = reatomRecord({
+  theme: 'dark',
+  language: 'en',
+  notifications: true,
+  autoSave: false,
+})
+
+// Read the current value
+console.log(userSettings())
+// { theme: 'dark', language: 'en', notifications: true, autoSave: false }
+
+// Merge partial updates
+userSettings.merge({ theme: 'light', autoSave: true })
+console.log(userSettings())
+// { theme: 'light', language: 'en', notifications: true, autoSave: true }
+
+// Remove a setting
+userSettings.omit('autoSave')
+console.log(userSettings())
+// { theme: 'light', language: 'en', notifications: true }
+
+// Reset specific settings
+userSettings.reset('theme')
+console.log(userSettings())
+// { theme: 'dark', language: 'en', notifications: true }
+```
+
+## Advanced Usage
+
+### Form State Management
+
+```typescript
+interface FormData {
+  email: string
+  password: string
+  rememberMe: boolean
+  agreedToTerms: boolean
+}
+
+const formAtom = reatomRecord<FormData>({
+  email: '',
+  password: '',
+  rememberMe: false,
+  agreedToTerms: false,
+})
+
+// Update a single field
+function updateField<K extends keyof FormData>(key: K, value: FormData[K]) {
+  formAtom.merge({ [key]: value } as Partial<FormData>)
+}
+
+updateField('email', 'user@example.com')
+updateField('rememberMe', true)
+
+// Reset the form
+function resetForm() {
+  formAtom.reset()
+}
+```
+
+### User Profile with Partial Updates
+
+```typescript
+interface UserProfile {
+  firstName: string
+  lastName: string
+  email: string
+  age: number
+  country: string
+}
+
+const profileAtom = reatomRecord<UserProfile>({
+  firstName: 'John',
+  lastName: 'Doe',
+  email: 'john@example.com',
+  age: 30,
+  country: 'US',
+})
+
+// Update multiple fields at once
+profileAtom.merge({
+  firstName: 'Jane',
+  age: 31,
+})
+
+// Reset only certain fields
+profileAtom.reset('email', 'country')
+```
+
+### Combining with Computed Atoms
+
+```typescript
+import { computed } from '@reatom/core'
+
+const settings = reatomRecord({
+  darkMode: true,
+  fontSize: 14,
+  compactView: false,
+})
+
+const cssVars = computed(() => {
+  const s = settings()
+  return {
+    '--bg-color': s.darkMode ? '#000' : '#fff',
+    '--font-size': `${s.fontSize}px`,
+    '--spacing': s.compactView ? '8px' : '16px',
+  }
+})
+```
+
+### Using with Atom Methods
+
+Since `RecordAtom` extends `Atom`, you can use standard atom methods:
+
+```typescript
+const recordAtom = reatomRecord({ a: 1, b: 2 })
+
+// Direct state updates
+recordAtom.set({ a: 10, b: 20 })
+
+// Functional updates
+recordAtom.set(prev => ({
+  ...prev,
+  a: prev.a * 2
+}))
+
+// Subscribe to changes
+const unsubscribe = recordAtom.subscribe((value) => {
+  console.log('Record changed:', value)
+})
+```
+
+## Notes
+
+- `merge` only triggers updates when at least one value actually changes (uses `Object.is()` for comparison)
+- `omit` only triggers updates if at least one specified key exists in the record
+- `reset` with no arguments resets the entire record to the initial state
+- `reset` with specific keys only resets those keys to their initial values
+- All mutations create new object instances, preserving immutability
+- Direct mutations like `recordAtom().key = value` will not trigger updates; use `merge()` or `set()` instead

@@ -1,0 +1,366 @@
+---
+title: 'extend()'
+description: 'Applies extensions to atoms or actions to add functionality'
+---
+
+## Overview
+
+The `extend()` method is the core extension mechanism in Reatom that allows adding functionality to atoms and actions. Extensions can add properties, methods, or modify behavior while maintaining the original reference identity of the atom/action.
+
+## Import
+
+```typescript
+import { atom } from '@reatom/core'
+// extend is a method on all atoms and actions
+```
+
+## Signature
+
+```typescript
+interface Extend<This extends AtomLike> {
+  <T1>(extension1: Ext<This, T1>): Merge<This, [T1]>
+  
+  <T1, T2>(
+    extension1: Ext<This, T1>,
+    extension2: Ext<Merge<This, [T1]>, T2>
+  ): Merge<This, [T1, T2]>
+  
+  // ... up to 10 extensions
+}
+```
+
+## Parameters
+
+<ParamField path="extensions" type="Ext[]" required>
+  One or more extension functions to apply. Each extension receives the atom/action and either returns the same instance with modified behavior, or returns an object with additional properties to be assigned.
+</ParamField>
+
+## Returns
+
+<ResponseField name="extended" type="Merge<This, Extensions>">
+  The original atom/action with all extensions applied. The reference identity is preserved - the same object is returned with modifications applied.
+</ResponseField>
+
+## Extension Types
+
+### Generic Extension (Ext)
+
+```typescript
+interface Ext<Target extends AtomLike = AtomLike, Extension = Target> {
+  (target: Target): Extension
+}
+```
+
+Extensions can either:
+- Return the target (with side effects like adding middleware)
+- Return an object with properties to assign to the target
+
+### Assigner Extension
+
+```typescript
+interface AssignerExt<Methods extends Rec = {}, Target extends AtomLike = AtomLike> {
+  <T extends Target>(target: T): Methods
+}
+```
+
+Extensions that add properties or methods to the target.
+
+## Examples
+
+### Basic Extension
+
+```typescript
+import { atom } from '@reatom/core'
+import { withReset } from '@reatom/core'
+
+const counter = atom(0, 'counter').extend(
+  withReset(0) // Adds a reset() method
+)
+
+counter.set(5)
+counter() // -> 5
+
+counter.reset()
+counter() // -> 0
+```
+
+### Multiple Extensions
+
+```typescript
+import { atom, withReset, withLogger } from '@reatom/core'
+
+const user = atom({ name: 'Alice' }, 'user').extend(
+  withReset({ name: 'Alice' }),
+  withLogger('USER')
+)
+
+// Both extensions are applied
+user.set({ name: 'Bob' })
+// Logs: "USER [user] changed..."
+
+user.reset()
+// Logs: "USER [user] changed..."
+user() // -> { name: 'Alice' }
+```
+
+### Creating Custom Extensions
+
+```typescript
+import { atom, type Ext, type Atom } from '@reatom/core'
+
+// Extension that adds increment/decrement methods
+const withCounter = (): Ext<Atom<number>> => {
+  return (target) => ({
+    increment: () => target.set(target() + 1),
+    decrement: () => target.set(target() - 1)
+  })
+}
+
+const count = atom(0, 'count').extend(withCounter())
+
+count.increment()
+count() // -> 1
+
+count.decrement()
+count() // -> 0
+```
+
+### Extension with Parameters
+
+```typescript
+import { atom, type AssignerExt } from '@reatom/core'
+
+const withBounds = (min: number, max: number): AssignerExt<{
+  setBounded: (value: number) => number
+}> => {
+  return (target) => ({
+    setBounded: (value: number) => {
+      const bounded = Math.max(min, Math.min(max, value))
+      return target.set(bounded)
+    }
+  })
+}
+
+const volume = atom(50, 'volume').extend(withBounds(0, 100))
+
+volume.setBounded(150)
+volume() // -> 100
+
+volume.setBounded(-10)
+volume() // -> 0
+```
+
+### Middleware Extensions
+
+```typescript
+import { atom, withMiddleware } from '@reatom/core'
+
+// Extension that validates state changes
+const withValidation = <T>(
+  validate: (value: T) => boolean,
+  errorMessage: string
+) => {
+  return withMiddleware((target) => {
+    return (next, ...params) => {
+      const result = next(...params)
+      if (!validate(result)) {
+        throw new Error(errorMessage)
+      }
+      return result
+    }
+  })
+}
+
+const age = atom(0, 'age').extend(
+  withValidation(
+    (value) => value >= 0 && value <= 150,
+    'Age must be between 0 and 150'
+  )
+)
+
+age.set(25) // OK
+
+try {
+  age.set(-5) // Throws error
+} catch (error) {
+  console.error(error.message) // -> "Age must be between 0 and 150"
+}
+```
+
+### Extending Actions
+
+```typescript
+import { action, withActionMiddleware } from '@reatom/core'
+
+const withRetry = (maxAttempts: number) => {
+  return withActionMiddleware((target) => {
+    return (next, ...params) => {
+      let attempts = 0
+      while (attempts < maxAttempts) {
+        try {
+          return next(...params)
+        } catch (error) {
+          attempts++
+          if (attempts >= maxAttempts) throw error
+        }
+      }
+    }
+  })
+}
+
+const fetchData = action(async () => {
+  const response = await fetch('/api/data')
+  return response.json()
+}, 'fetchData').extend(withRetry(3))
+
+// Will retry up to 3 times on failure
+await fetchData()
+```
+
+### Chaining Extensions
+
+```typescript
+import { atom } from '@reatom/core'
+import {
+  withReset,
+  withLogger,
+  withLocalStorage
+} from '@reatom/core'
+
+const settings = atom(
+  { theme: 'light', fontSize: 14 },
+  'settings'
+).extend(
+  withReset({ theme: 'light', fontSize: 14 }),
+  withLocalStorage('app-settings'),
+  withLogger('SETTINGS')
+)
+
+// All three extensions work together:
+// 1. Can reset to default
+// 2. Persists to localStorage
+// 3. Logs all changes
+```
+
+### Extension Type Safety
+
+```typescript
+import { atom, type Ext, type Atom } from '@reatom/core'
+
+// Type-safe extension that only works with number atoms
+const withDouble = (): Ext<Atom<number>, Atom<number> & { double: () => number }> => {
+  return (target) => ({
+    double: () => target() * 2
+  })
+}
+
+const count = atom(5, 'count').extend(withDouble())
+count.double() // -> 10
+
+const name = atom('Alice', 'name')
+// @ts-expect-error - withDouble only works with number atoms
+name.extend(withDouble())
+```
+
+### Extension Limits
+
+```typescript
+import { atom } from '@reatom/core'
+
+// You can chain up to 10 extensions in a single call
+const myAtom = atom(0).extend(
+  ext1,
+  ext2,
+  ext3,
+  ext4,
+  ext5,
+  ext6,
+  ext7,
+  ext8,
+  ext9,
+  ext10
+) // OK
+
+// For more than 10, split into multiple extend calls
+const complex = atom(0)
+  .extend(ext1, ext2, ext3, ext4, ext5, ext6, ext7, ext8, ext9, ext10)
+  .extend(ext11, ext12, ext13)
+```
+
+## Built-in Extensions
+
+Reatom provides many built-in extensions:
+
+### State Management
+- `withReset()` - Add reset functionality
+- `withUndo()` - Add undo/redo capability
+- `withLocalStorage()` - Persist to localStorage
+- `withSessionStorage()` - Persist to sessionStorage
+
+### Lifecycle
+- `withInit()` - Run initialization logic
+- `withConnectHook()` - Hook into subscribe/unsubscribe
+- `withChangeHook()` - Hook into state changes
+
+### Async
+- `withAbort()` - Add abort controller support
+- `withAsync()` - Enhanced async state handling
+- `withAsyncData()` - Async data fetching patterns
+- `withSuspense()` - React Suspense integration
+
+### Computed
+- `withComputed()` - Add computed properties
+- `withMemo()` - Add memoization
+
+### Debugging
+- `withLogger()` - Log state changes
+- `withDevtools()` - Redux DevTools integration
+
+## Type Information
+
+### Extension Types
+
+```typescript
+interface Ext<Target extends AtomLike = AtomLike, Extension = Target> {
+  (target: Target): Extension
+}
+
+interface GenericExt<Target extends AtomLike = AtomLike> {
+  <T extends Target>(target: T): T
+}
+
+interface AssignerExt<
+  Methods extends Rec = {},
+  Target extends AtomLike = AtomLike
+> {
+  <T extends Target>(target: T): Methods
+}
+```
+
+### Merge Type
+
+```typescript
+type Merge<Target extends AtomLike, Extensions extends Array<any>> =
+  Extensions extends []
+    ? Target
+    : Extensions extends [infer E, ...infer Rest extends Array<any>]
+      ? Merge<E extends AtomLike ? E : Target & E, Rest>
+      : never
+```
+
+## Key Characteristics
+
+- **Reference Identity**: Extensions modify the original object - they don't create a copy
+- **Property Assignment**: Extensions can add new properties and methods
+- **Middleware Support**: Extensions can intercept and modify behavior
+- **Type Safety**: Full TypeScript support with type inference
+- **Composable**: Extensions can be chained together
+- **No Override**: Extensions cannot override existing properties (will throw an error)
+
+## Related
+
+- [atom()](/api/core/atom) - Create atoms that can be extended
+- [action()](/api/core/action) - Create actions that can be extended
+- [computed()](/api/core/computed) - Create computed atoms that can be extended
+- [withMiddleware()](/api/extensions/with-middleware) - Create middleware extensions
+- [Global Extensions](/api/core/add-global-extension) - Apply extensions to all atoms

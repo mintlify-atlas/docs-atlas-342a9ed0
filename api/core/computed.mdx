@@ -1,0 +1,236 @@
+---
+title: 'computed()'
+description: 'Creates a derived state container that lazily recalculates when dependencies change'
+---
+
+## Overview
+
+The `computed()` function creates a derived state container that automatically tracks its dependencies (other atoms or computed values that are called during computation) and only recalculates when those dependencies change. The computation is lazy - it only runs when the computed value is read AND subscribed to.
+
+## Import
+
+```typescript
+import { computed } from '@reatom/core'
+```
+
+## Signature
+
+```typescript
+function computed<State>(
+  computed: (() => State) | ((state?: State) => State),
+  name?: string
+): Computed<State>
+```
+
+## Parameters
+
+<ParamField path="computed" type="(() => State) | ((state?: State) => State)" required>
+  A function that computes the derived state. Any atoms or computed values called within this function automatically become dependencies. The function can optionally receive the previous computed state as a parameter.
+</ParamField>
+
+<ParamField path="name" type="string" optional>
+  Optional name for the computed atom. Useful for debugging and dev tools. If not provided, an auto-generated name will be used.
+</ParamField>
+
+## Returns
+
+<ResponseField name="computed" type="Computed<State>">
+  A computed atom instance with the following interface:
+  
+  <Expandable title="Computed Interface">
+    <ResponseField name="()" type="() => State">
+      Call the computed atom as a function to read its current derived state. Triggers recalculation if dependencies have changed.
+    </ResponseField>
+    
+    <ResponseField name="subscribe" type="(cb?: (state: State) => any) => Unsubscribe">
+      Subscribe to state changes. The callback is called immediately with the current state, then whenever dependencies change. Returns an unsubscribe function.
+    </ResponseField>
+    
+    <ResponseField name="extend" type="Extend<this>">
+      Apply extensions to add functionality to the computed atom. See [extend()](/api/core/extend) for details.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Derived State
+
+```typescript
+import { atom, computed } from '@reatom/core'
+
+const counter = atom(5, 'counter')
+const doubled = computed(() => counter() * 2, 'doubled')
+
+// Reading triggers computation only if subscribed
+const value = doubled() // -> 10
+
+counter.set(10)
+const newValue = doubled() // -> 20
+```
+
+### Multiple Dependencies
+
+```typescript
+const firstName = atom('John', 'firstName')
+const lastName = atom('Doe', 'lastName')
+
+const fullName = computed(
+  () => `${firstName()} ${lastName()}`,
+  'fullName'
+)
+
+fullName() // -> "John Doe"
+
+firstName.set('Jane')
+fullName() // -> "Jane Doe"
+```
+
+### Conditional Dependencies
+
+```typescript
+const condition = atom(true, 'condition')
+const dep1 = atom(1, 'dep1')
+const dep2 = atom(2, 'dep2')
+
+const conditional = computed(() => {
+  if (condition()) {
+    return dep1()
+  } else {
+    return dep2()
+  }
+}, 'conditional')
+
+conditional.subscribe()
+
+// Only dep1 is tracked initially
+condition() // -> true
+conditional() // -> 1
+
+// Switching dependencies
+condition.set(false)
+// Now only dep2 is tracked
+conditional() // -> 2
+```
+
+### Chained Computed Values
+
+```typescript
+const count = atom(5, 'count')
+const doubled = computed(() => count() * 2, 'doubled')
+const quadrupled = computed(() => doubled() * 2, 'quadrupled')
+
+quadrupled.subscribe((value) => {
+  console.log('Quadrupled:', value)
+})
+// Logs: "Quadrupled: 20"
+
+count.set(10)
+// Logs: "Quadrupled: 40"
+```
+
+### Using Previous State
+
+```typescript
+const input = atom(0, 'input')
+
+// Accumulate changes
+const sum = computed((prev = 0) => prev + input(), 'sum')
+
+sum.subscribe()
+
+input.set(5)
+sum() // -> 5
+
+input.set(3)
+sum() // -> 8
+
+input.set(2)
+sum() // -> 10
+```
+
+### Complex Calculations
+
+```typescript
+interface CartItem {
+  id: string
+  price: number
+  quantity: number
+}
+
+const cartItems = atom<CartItem[]>([], 'cartItems')
+const taxRate = atom(0.1, 'taxRate')
+
+const subtotal = computed(() => {
+  return cartItems().reduce((sum, item) => {
+    return sum + item.price * item.quantity
+  }, 0)
+}, 'subtotal')
+
+const tax = computed(() => {
+  return subtotal() * taxRate()
+}, 'tax')
+
+const total = computed(() => {
+  return subtotal() + tax()
+}, 'total')
+
+cartItems.set([
+  { id: '1', price: 10, quantity: 2 },
+  { id: '2', price: 5, quantity: 3 }
+])
+
+subtotal() // -> 35
+tax() // -> 3.5
+total() // -> 38.5
+```
+
+### Subscribing to Computed Values
+
+```typescript
+const a = atom(1, 'a')
+const b = atom(2, 'b')
+const sum = computed(() => a() + b(), 'sum')
+
+const unsubscribe = sum.subscribe((value) => {
+  console.log('Sum changed:', value)
+})
+// Logs immediately: "Sum changed: 3"
+
+a.set(5)
+// Logs: "Sum changed: 7"
+
+b.set(10)
+// Logs: "Sum changed: 15"
+
+unsubscribe()
+```
+
+## Type Information
+
+### Computed Interface
+
+```typescript
+interface Computed<State = any> extends AtomLike<State, []> {}
+```
+
+### Key Characteristics
+
+- **Lazy Evaluation**: Computed values only recalculate when read AND when their dependencies have changed
+- **Automatic Dependency Tracking**: Any atom or computed value called within the computation function is automatically tracked as a dependency
+- **Read-Only**: Computed atoms cannot be directly modified with `.set()` - they derive their value from other atoms
+- **Efficient**: Computed values use memoization to avoid unnecessary recalculations
+
+## Performance Tips
+
+1. **Keep computations pure**: Computed functions should not have side effects
+2. **Conditional dependencies**: Only atoms called during execution become dependencies
+3. **Subscription matters**: Unsubscribed computed atoms recalculate on every read
+4. **Chain computations**: Break complex calculations into smaller computed atoms for better performance
+
+## Related
+
+- [atom()](/api/core/atom) - Create mutable state containers
+- [action()](/api/core/action) - Create logic and side effect containers  
+- [effect()](/api/core/effect) - Create reactive side effects
+- [extend()](/api/core/extend) - Add functionality to computed atoms

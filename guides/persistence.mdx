@@ -1,0 +1,649 @@
+---
+title: State Persistence
+description: Persist atom state across sessions with localStorage, sessionStorage, IndexedDB, and custom storage adapters
+---
+
+# State Persistence
+
+Reatom provides a powerful persistence system that automatically synchronizes atom state with various storage backends, including localStorage, sessionStorage, IndexedDB, and custom storage implementations.
+
+## Core Concepts
+
+Reatom's persistence system offers:
+
+- **Automatic Synchronization** - State syncs to storage on every change
+- **Cross-Tab Sync** - Changes in one tab update other tabs automatically
+- **Schema Validation** - Validate persisted data with Standard Schema
+- **Versioning & Migration** - Handle schema changes gracefully
+- **TTL Support** - Automatically expire old data
+- **Custom Storage** - Implement any storage backend
+
+## Quick Start
+
+### LocalStorage Persistence
+
+```ts
+import { atom } from '@reatom/core'
+import { withLocalStorage } from '@reatom/core/persist'
+
+const themeAtom = atom('light', 'themeAtom').extend(
+  withLocalStorage('app-theme')
+)
+
+// State automatically persists to localStorage
+themeAtom.set('dark')
+
+// On page reload, state is restored
+console.log(themeAtom()) // → 'dark'
+```
+
+### SessionStorage Persistence
+
+```ts
+import { withSessionStorage } from '@reatom/core/persist'
+
+const wizardStateAtom = atom({ step: 1 }, 'wizardStateAtom').extend(
+  withSessionStorage('wizard-progress')
+)
+
+// Persists for the session duration only
+wizardStateAtom.set({ step: 2 })
+
+// Cleared when tab closes
+```
+
+## Storage Options
+
+### LocalStorage
+
+Persists data between browser sessions:
+
+```ts
+import { withLocalStorage } from '@reatom/core/persist'
+
+const userPrefsAtom = atom(
+  { fontSize: 14, theme: 'light' },
+  'userPrefsAtom'
+).extend(withLocalStorage('user-preferences'))
+
+// Data survives:
+// ✓ Page reloads
+// ✓ Browser restarts
+// ✓ System reboots
+```
+
+**Features:**
+- ~5-10MB storage limit (varies by browser)
+- Shared across all tabs
+- Cross-tab synchronization via storage events
+- Automatic fallback to memory storage if unavailable
+
+### SessionStorage
+
+Persists data for the current session only:
+
+```ts
+import { withSessionStorage } from '@reatom/core/persist'
+
+const formDraftAtom = atom(
+  { title: '', content: '' },
+  'formDraftAtom'
+).extend(withSessionStorage('form-draft'))
+
+// Data survives:
+// ✓ Page reloads
+// ✗ Tab closes
+// ✗ Browser restarts
+```
+
+**Features:**
+- ~5-10MB storage limit (varies by browser)
+- Isolated per tab (no cross-tab sharing)
+- Cleared when tab closes
+- Automatic fallback to memory storage if unavailable
+
+### IndexedDB
+
+Store large amounts of structured data:
+
+```ts
+import { withIndexedDb } from '@reatom/core/persist/web-storage'
+
+const documentsAtom = atom([], 'documentsAtom').extend(
+  withIndexedDb('my-documents')
+)
+
+// Store large datasets
+documentsAtom.set([
+  { id: 1, content: '...large content...' },
+  { id: 2, content: '...large content...' },
+  // ... hundreds or thousands of items
+])
+```
+
+**Features:**
+- Much larger storage limits (often 50MB+)
+- Async operations (non-blocking)
+- Supports complex data structures
+- Cross-tab synchronization
+
+### Cookies
+
+Store small amounts of data that need server access:
+
+```ts
+import { withCookie } from '@reatom/core/persist/web-storage'
+
+const authTokenAtom = atom('', 'authTokenAtom').extend(
+  withCookie('auth-token')
+)
+
+// Accessible in HTTP requests
+authTokenAtom.set('bearer-token-xyz')
+```
+
+**Features:**
+- ~4KB size limit per cookie
+- Sent with HTTP requests
+- Can set expiration, domain, path
+- Useful for SSR applications
+
+## Advanced Configuration
+
+### State Transformation
+
+Transform data before persisting:
+
+```ts
+import { withLocalStorage } from '@reatom/core/persist'
+
+interface User {
+  id: number
+  name: string
+  createdAt: Date
+}
+
+const userAtom = atom<User | null>(null, 'userAtom').extend(
+  withLocalStorage({
+    key: 'current-user',
+    toSnapshot: (user) => {
+      if (!user) return null
+      return {
+        ...user,
+        createdAt: user.createdAt.toISOString(),
+      }
+    },
+    fromSnapshot: (snapshot) => {
+      if (!snapshot) return null
+      return {
+        ...snapshot,
+        createdAt: new Date(snapshot.createdAt),
+      }
+    },
+  })
+)
+```
+
+### Schema Validation
+
+Validate persisted data with schemas:
+
+```ts
+import { z } from 'zod'
+import { withLocalStorage } from '@reatom/core/persist'
+
+const settingsSchema = z.object({
+  theme: z.enum(['light', 'dark']),
+  fontSize: z.number().min(10).max(24),
+  notifications: z.boolean(),
+})
+
+const settingsAtom = atom(
+  { theme: 'light', fontSize: 14, notifications: true },
+  'settingsAtom'
+).extend(
+  withLocalStorage({
+    key: 'app-settings',
+    schema: settingsSchema,
+  })
+)
+
+// Invalid data is rejected and atom uses default value
+// localStorage.setItem('app-settings', JSON.stringify({ theme: 'blue' }))
+// settingsAtom() // → { theme: 'light', fontSize: 14, notifications: true }
+```
+
+### Versioning & Migration
+
+Handle breaking changes with versions:
+
+```ts
+import { withLocalStorage } from '@reatom/core/persist'
+
+// Version 1 schema
+interface SettingsV1 {
+  darkMode: boolean
+}
+
+// Version 2 schema
+interface SettingsV2 {
+  theme: 'light' | 'dark'
+  fontSize: number
+}
+
+const settingsAtom = atom<SettingsV2>(
+  { theme: 'light', fontSize: 14 },
+  'settingsAtom'
+).extend(
+  withLocalStorage({
+    key: 'settings',
+    version: 2,
+    migration: (record, currentVersion) => {
+      if (record.version === 1) {
+        const v1Data = record.data as SettingsV1
+        return {
+          theme: v1Data.darkMode ? 'dark' : 'light',
+          fontSize: 14,
+        }
+      }
+      return record.data
+    },
+  })
+)
+```
+
+### Time-To-Live (TTL)
+
+Automatically expire data:
+
+```ts
+import { withLocalStorage } from '@reatom/core/persist'
+
+const cacheAtom = atom(null, 'cacheAtom').extend(
+  withLocalStorage({
+    key: 'api-cache',
+    time: 1000 * 60 * 60, // 1 hour in milliseconds
+  })
+)
+
+// Data is cleared after 1 hour
+cacheAtom.set({ data: '...' })
+
+// After 1 hour, cacheAtom() returns initial value
+```
+
+## Cross-Tab Synchronization
+
+### Automatic Sync
+
+LocalStorage automatically syncs across tabs:
+
+<Steps>
+
+### Setup Synced Atom
+
+```ts
+import { withLocalStorage } from '@reatom/core/persist'
+
+const counterAtom = atom(0, 'counterAtom').extend(
+  withLocalStorage('shared-counter')
+)
+```
+
+### Change in Tab 1
+
+```ts
+// Tab 1
+counterAtom.set(5)
+```
+
+### Automatically Updates Tab 2
+
+```ts
+// Tab 2 (automatically updated)
+console.log(counterAtom()) // → 5
+```
+
+</Steps>
+
+### Disable Sync
+
+Disable cross-tab synchronization:
+
+```ts
+import { reatomPersist } from '@reatom/core/persist'
+import { createMemStorage } from '@reatom/core/persist'
+
+const withLocalStorageNoSync = reatomPersist(
+  createMemStorage({ 
+    name: 'no-sync',
+    subscribe: false, // Disable cross-tab sync
+  })
+)
+
+const atomAtom = atom(0, 'atomAtom').extend(
+  withLocalStorageNoSync('key')
+)
+```
+
+## Custom Storage
+
+### Creating Custom Storage
+
+```ts
+import { reatomPersist, type PersistStorage } from '@reatom/core/persist'
+
+const createCustomStorage = (name: string): PersistStorage => ({
+  name,
+  cache: new Map(),
+  
+  get({ key }) {
+    const value = myCustomDb.get(key)
+    return value ? JSON.parse(value) : null
+  },
+  
+  set({ key }, record) {
+    myCustomDb.set(key, JSON.stringify(record))
+  },
+  
+  clear({ key }) {
+    myCustomDb.delete(key)
+  },
+  
+  subscribe({ key }, callback) {
+    const listener = (event) => {
+      if (event.key === key) {
+        callback(JSON.parse(event.value))
+      }
+    }
+    myCustomDb.on('change', listener)
+    return () => myCustomDb.off('change', listener)
+  },
+})
+
+const withMyStorage = reatomPersist(createCustomStorage('myStorage'))
+```
+
+### Async Storage
+
+Implement async storage backends:
+
+```ts
+import { reatomPersist } from '@reatom/core/persist'
+
+const withAsyncStorage = reatomPersist({
+  name: 'asyncStorage',
+  cache: new Map(),
+  
+  async get({ key }) {
+    const value = await myAsyncDb.get(key)
+    return value ? JSON.parse(value) : null
+  },
+  
+  async set({ key }, record) {
+    await myAsyncDb.set(key, JSON.stringify(record))
+  },
+  
+  async clear({ key }) {
+    await myAsyncDb.delete(key)
+  },
+})
+
+const dataAtom = atom(null, 'dataAtom').extend(
+  withAsyncStorage('my-data')
+)
+```
+
+### Memory Storage
+
+In-memory storage for testing:
+
+```ts
+import { createMemStorage, reatomPersist } from '@reatom/core/persist'
+
+const withTestStorage = reatomPersist(
+  createMemStorage({
+    name: 'test',
+    snapshot: {
+      'user-id': 123,
+      'theme': 'dark',
+    },
+  })
+)
+
+// Use in tests
+const userIdAtom = atom(0, 'userIdAtom').extend(
+  withTestStorage('user-id')
+)
+
+console.log(userIdAtom()) // → 123 (from snapshot)
+```
+
+## Best Practices
+
+### 1. Use Appropriate Storage
+
+Choose the right storage for your use case:
+
+```ts
+// ✓ Good - settings persist across sessions
+const settingsAtom = atom({}, 'settingsAtom').extend(
+  withLocalStorage('settings')
+)
+
+// ✓ Good - wizard state only for current session
+const wizardAtom = atom({}, 'wizardAtom').extend(
+  withSessionStorage('wizard')
+)
+
+// ✗ Bad - auth token should use httpOnly cookies
+const tokenAtom = atom('', 'tokenAtom').extend(
+  withLocalStorage('auth-token') // Security risk!
+)
+```
+
+### 2. Always Validate Persisted Data
+
+Never trust persisted data:
+
+```ts
+// ✓ Good - validated with schema
+const settingsAtom = atom({}, 'settingsAtom').extend(
+  withLocalStorage({
+    key: 'settings',
+    schema: settingsSchema,
+  })
+)
+
+// ✗ Bad - no validation
+const settingsAtom = atom({}, 'settingsAtom').extend(
+  withLocalStorage('settings')
+)
+```
+
+### 3. Use Versioning for Production
+
+Always version your schemas:
+
+```ts
+// ✓ Good - versioned with migration
+const dataAtom = atom({}, 'dataAtom').extend(
+  withLocalStorage({
+    key: 'data',
+    version: 1,
+    migration: (record, version) => {
+      // Handle version changes
+      return record.data
+    },
+  })
+)
+
+// ✗ Bad - no version
+const dataAtom = atom({}, 'dataAtom').extend(
+  withLocalStorage('data')
+)
+```
+
+### 4. Set Appropriate TTLs
+
+Don't store data forever:
+
+```ts
+// ✓ Good - cache expires after 1 hour
+const cacheAtom = atom(null, 'cacheAtom').extend(
+  withLocalStorage({
+    key: 'cache',
+    time: 1000 * 60 * 60, // 1 hour
+  })
+)
+
+// ✗ Bad - never expires (default: MAX_SAFE_TIMEOUT)
+const cacheAtom = atom(null, 'cacheAtom').extend(
+  withLocalStorage('cache')
+)
+```
+
+<Warning>
+  **Security Warning:** Never persist sensitive data like passwords or auth tokens in localStorage or sessionStorage. Use httpOnly cookies or secure server-side sessions instead.
+</Warning>
+
+## Common Patterns
+
+### Persist Partial State
+
+Only persist specific fields:
+
+```ts
+import { computed } from '@reatom/core'
+
+const appStateAtom = atom({
+  user: { id: 1, name: 'John' },
+  theme: 'dark',
+  tempData: { /* ... */ },
+}, 'appStateAtom')
+
+// Only persist theme
+const persistedThemeAtom = computed(
+  () => appStateAtom().theme,
+  'persistedThemeAtom'
+).extend(withLocalStorage('theme'))
+
+// Sync back to app state
+appStateAtom.extend(
+  withInit(() => ({
+    ...appStateAtom(),
+    theme: persistedThemeAtom(),
+  }))
+)
+```
+
+### Lazy Hydration
+
+Defer hydration until needed:
+
+```ts
+import { atom } from '@reatom/core'
+import { withInit } from '@reatom/core'
+
+const settingsAtom = atom({}, 'settingsAtom')
+
+const hydrateSettings = action(() => {
+  const stored = localStorage.getItem('settings')
+  if (stored) {
+    settingsAtom.set(JSON.parse(stored))
+  }
+}, 'hydrateSettings')
+
+// Hydrate on demand
+effect(() => {
+  if (userLoggedIn()) {
+    hydrateSettings()
+  }
+})
+```
+
+### Conditional Persistence
+
+Persist based on conditions:
+
+```ts
+import { effect } from '@reatom/core'
+
+const dataAtom = atom({}, 'dataAtom')
+const shouldPersist = atom(false, 'shouldPersist')
+
+effect(() => {
+  if (shouldPersist()) {
+    localStorage.setItem('data', JSON.stringify(dataAtom()))
+  }
+})
+```
+
+### Encrypted Storage
+
+Encrypt sensitive data:
+
+```ts
+import { reatomPersist } from '@reatom/core/persist'
+import { encrypt, decrypt } from 'crypto-lib'
+
+const withEncryptedStorage = reatomPersist({
+  name: 'encrypted',
+  cache: new Map(),
+  
+  get({ key }) {
+    const encrypted = localStorage.getItem(key)
+    if (!encrypted) return null
+    const decrypted = decrypt(encrypted)
+    return JSON.parse(decrypted)
+  },
+  
+  set({ key }, record) {
+    const json = JSON.stringify(record)
+    const encrypted = encrypt(json)
+    localStorage.setItem(key, encrypted)
+  },
+})
+
+const sensitiveAtom = atom({}, 'sensitiveAtom').extend(
+  withEncryptedStorage('sensitive-data')
+)
+```
+
+## Testing
+
+### Mock Storage
+
+```ts
+import { createMemStorage, reatomPersist } from '@reatom/core/persist'
+import { test, expect } from 'vitest'
+
+test('persists state', () => {
+  const storage = createMemStorage({ name: 'test' })
+  const withTestStorage = reatomPersist(storage)
+  
+  const counterAtom = atom(0, 'counterAtom').extend(
+    withTestStorage('counter')
+  )
+  
+  counterAtom.set(5)
+  
+  // Check storage
+  const record = storage.get({ key: 'counter' })
+  expect(record?.data).toBe(5)
+})
+```
+
+### Reset Between Tests
+
+```ts
+import { beforeEach } from 'vitest'
+
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+})
+```
+
+## Related APIs
+

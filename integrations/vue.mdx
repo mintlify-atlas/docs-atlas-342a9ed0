@@ -1,0 +1,436 @@
+---
+title: Vue Integration
+description: Use Reatom state management with Vue 3 applications using composables and refs
+---
+
+The `@reatom/vue` package provides Vue 3 integration for Reatom, allowing you to use atoms with Vue's reactivity system through custom refs and composables.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @reatom/vue @reatom/core
+```
+
+```bash yarn
+yarn add @reatom/vue @reatom/core
+```
+
+```bash pnpm
+pnpm add @reatom/vue @reatom/core
+```
+</CodeGroup>
+
+<Note>
+This package requires Vue 3.5.17 or higher and is currently in alpha.
+</Note>
+
+## Setup
+
+Provide the Reatom frame to your Vue application:
+
+```ts
+import { createApp } from 'vue'
+import { createContext } from '@reatom/core'
+import { createReatomVue } from '@reatom/vue'
+import App from './App.vue'
+
+const ctx = createContext()
+const app = createApp(App)
+
+app.use(createReatomVue(ctx))
+app.mount('#app')
+```
+
+## Core Composables
+
+### reatomRef
+
+Convert Reatom atoms to Vue refs for seamless integration with Vue's reactivity system:
+
+#### Basic Usage
+
+```vue
+<script setup lang="ts">
+import { atom } from '@reatom/core'
+import { reatomRef } from '@reatom/vue'
+
+const countAtom = atom(0, 'count')
+const count = reatomRef(countAtom)
+
+const increment = () => {
+  count.value++
+}
+</script>
+
+<template>
+  <div>
+    <p>Count: {{ count }}</p>
+    <button @click="increment">Increment</button>
+  </div>
+</template>
+```
+
+#### With Computed Atoms
+
+Computed atoms return readonly refs:
+
+```vue
+<script setup lang="ts">
+import { atom, computed } from '@reatom/core'
+import { reatomRef } from '@reatom/vue'
+
+const countAtom = atom(0, 'count')
+const doubledAtom = computed(() => countAtom() * 2, 'doubled')
+
+const count = reatomRef(countAtom)
+const doubled = reatomRef(doubledAtom) // Readonly<Ref<number>>
+</script>
+
+<template>
+  <div>
+    <p>Count: {{ count }}</p>
+    <p>Doubled: {{ doubled }}</p>
+    <button @click="count++">Increment</button>
+  </div>
+</template>
+```
+
+#### With Inline Computed
+
+You can also pass computed functions directly:
+
+```vue
+<script setup lang="ts">
+import { atom } from '@reatom/core'
+import { reatomRef } from '@reatom/vue'
+
+const firstNameAtom = atom('John', 'firstName')
+const lastNameAtom = atom('Doe', 'lastName')
+
+const fullName = reatomRef(() => `${firstNameAtom()} ${lastNameAtom()}`)
+</script>
+
+<template>
+  <div>
+    <p>Full name: {{ fullName }}</p>
+  </div>
+</template>
+```
+
+**API Reference:**
+
+```ts
+reatomRef<T>(target: Atom<T>): Ref<T>
+reatomRef<T>(target: Computed<T> | (() => T)): Readonly<Ref<T>>
+```
+
+**Features:**
+- Automatic subscription management
+- Cleanup on component unmount
+- Full TypeScript support
+- Readonly refs for computed atoms
+
+### useAction
+
+Wrap functions to execute them within the Reatom context:
+
+```vue
+<script setup lang="ts">
+import { atom } from '@reatom/core'
+import { reatomRef, useAction } from '@reatom/vue'
+
+const countAtom = atom(0, 'count')
+const count = reatomRef(countAtom)
+
+const increment = useAction(() => {
+  countAtom.set(countAtom() + 1)
+})
+
+const add = useAction((amount: number) => {
+  countAtom.set(countAtom() + amount)
+})
+</script>
+
+<template>
+  <div>
+    <p>Count: {{ count }}</p>
+    <button @click="increment">Increment</button>
+    <button @click="() => add(5)">Add 5</button>
+  </div>
+</template>
+```
+
+**Parameters:**
+- `fn`: Function to wrap
+
+**Returns:**
+- Wrapped function that executes in the Reatom context
+
+### useFrame
+
+Access the current Reatom frame:
+
+```vue
+<script setup lang="ts">
+import { useFrame } from '@reatom/vue'
+import { wrap } from '@reatom/core'
+
+const frame = useFrame()
+
+const handleClick = () => {
+  wrap(() => {
+    // Your logic here
+  }, frame)
+}
+</script>
+
+<template>
+  <button @click="handleClick">Click me</button>
+</template>
+```
+
+## Complete Examples
+
+### Counter Application
+
+```vue
+<script setup lang="ts">
+import { atom } from '@reatom/core'
+import { reatomRef } from '@reatom/vue'
+
+const countAtom = atom(0, 'count')
+const count = reatomRef(countAtom)
+
+const increment = () => count.value++
+const decrement = () => count.value--
+const reset = () => count.value = 0
+</script>
+
+<template>
+  <div class="counter">
+    <h2>Counter: {{ count }}</h2>
+    <div class="buttons">
+      <button @click="decrement">-</button>
+      <button @click="reset">Reset</button>
+      <button @click="increment">+</button>
+    </div>
+  </div>
+</template>
+```
+
+### Todo List
+
+```vue
+<script setup lang="ts">
+import { atom, computed } from '@reatom/core'
+import { reatomRef, useAction } from '@reatom/vue'
+import { ref } from 'vue'
+
+interface Todo {
+  id: number
+  text: string
+  completed: boolean
+}
+
+const todosAtom = atom<Todo[]>([], 'todos')
+const todos = reatomRef(todosAtom)
+
+const completedCountAtom = computed(
+  () => todosAtom().filter(t => t.completed).length,
+  'completedCount'
+)
+const completedCount = reatomRef(completedCountAtom)
+
+const newTodoText = ref('')
+
+const addTodo = useAction(() => {
+  if (newTodoText.value.trim()) {
+    todosAtom.set([
+      ...todosAtom(),
+      {
+        id: Date.now(),
+        text: newTodoText.value,
+        completed: false
+      }
+    ])
+    newTodoText.value = ''
+  }
+})
+
+const toggleTodo = useAction((id: number) => {
+  todosAtom.set(
+    todosAtom().map(todo =>
+      todo.id === id ? { ...todo, completed: !todo.completed } : todo
+    )
+  )
+})
+
+const removeTodo = useAction((id: number) => {
+  todosAtom.set(todosAtom().filter(todo => todo.id !== id))
+})
+</script>
+
+<template>
+  <div class="todo-app">
+    <h2>Todo List</h2>
+    <p>Completed: {{ completedCount }} / {{ todos.length }}</p>
+    
+    <div class="add-todo">
+      <input
+        v-model="newTodoText"
+        @keyup.enter="addTodo"
+        placeholder="Add a todo..."
+      />
+      <button @click="addTodo">Add</button>
+    </div>
+    
+    <ul class="todo-list">
+      <li v-for="todo in todos" :key="todo.id">
+        <input
+          type="checkbox"
+          :checked="todo.completed"
+          @change="() => toggleTodo(todo.id)"
+        />
+        <span :class="{ completed: todo.completed }">{{ todo.text }}</span>
+        <button @click="() => removeTodo(todo.id)">Delete</button>
+      </li>
+    </ul>
+  </div>
+</template>
+
+<style scoped>
+.completed {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+</style>
+```
+
+### Form with Multiple Fields
+
+```vue
+<script setup lang="ts">
+import { atom, computed } from '@reatom/core'
+import { reatomRef, useAction } from '@reatom/vue'
+
+const emailAtom = atom('', 'email')
+const passwordAtom = atom('', 'password')
+
+const email = reatomRef(emailAtom)
+const password = reatomRef(passwordAtom)
+
+const isValidAtom = computed(() => {
+  const emailValue = emailAtom()
+  const passwordValue = passwordAtom()
+  return emailValue.includes('@') && passwordValue.length >= 8
+}, 'isValid')
+
+const isValid = reatomRef(isValidAtom)
+
+const submit = useAction(() => {
+  if (isValidAtom()) {
+    console.log('Submitting:', {
+      email: emailAtom(),
+      password: passwordAtom()
+    })
+  }
+})
+</script>
+
+<template>
+  <form @submit.prevent="submit">
+    <div>
+      <label>Email:</label>
+      <input v-model="email" type="email" />
+    </div>
+    
+    <div>
+      <label>Password:</label>
+      <input v-model="password" type="password" />
+    </div>
+    
+    <button type="submit" :disabled="!isValid">
+      Submit
+    </button>
+  </form>
+</template>
+```
+
+## TypeScript Support
+
+The package is fully typed and works seamlessly with TypeScript:
+
+```vue
+<script setup lang="ts">
+import { atom, computed } from '@reatom/core'
+import { reatomRef } from '@reatom/vue'
+import type { Ref } from 'vue'
+
+interface User {
+  id: number
+  name: string
+  email: string
+}
+
+const userAtom = atom<User | null>(null, 'user')
+const user: Ref<User | null> = reatomRef(userAtom)
+
+const userNameAtom = computed(
+  () => userAtom()?.name ?? 'Guest',
+  'userName'
+)
+const userName = reatomRef(userNameAtom) // Readonly<Ref<string>>
+</script>
+
+<template>
+  <div>
+    <p>Welcome, {{ userName }}</p>
+  </div>
+</template>
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use reatomRef for atoms">
+    Convert atoms to refs using `reatomRef` to integrate with Vue's reactivity system.
+  </Step>
+  
+  <Step title="Leverage computed atoms">
+    Use Reatom's computed atoms for derived state instead of Vue's computed refs when you need cross-framework compatibility.
+  </Step>
+  
+  <Step title="Wrap actions with useAction">
+    Use `useAction` for event handlers to ensure they execute in the correct Reatom context.
+  </Step>
+  
+  <Step title="Provide context at the app level">
+    Set up the Reatom context once at the application root using `createReatomVue`.
+  </Step>
+</Steps>
+
+## SSR Support
+
+For server-side rendering with Vue, ensure you create a new context per request:
+
+```ts
+import { createSSRApp } from 'vue'
+import { createContext } from '@reatom/core'
+import { createReatomVue } from '@reatom/vue'
+
+export function createApp() {
+  const app = createSSRApp(App)
+  const ctx = createContext()
+  
+  app.use(createReatomVue(ctx))
+  
+  return { app, ctx }
+}
+```
+
+## Next Steps
+
+- Learn about [Core Concepts](/core/atom) for atoms and state management
+- Explore [Asynchttps://github.com/reatom/reatom/tree/main/packages for handling asynchronous operations
+- Check out [Persisthttps://github.com/reatom/reatom/tree/main/packages for state persistence

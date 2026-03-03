@@ -1,0 +1,352 @@
+---
+title: withAbort
+description: Extension to add abort handling to actions and computed atoms
+---
+
+## Overview
+
+The `withAbort` extension adds abort handling to actions and computed atoms, enabling you to cancel ongoing async operations. It supports multiple strategies for handling concurrent calls:
+
+- **last-in-win**: Abort previous calls when a new one starts (default)
+- **first-in-win**: Ignore new calls while a previous one is running
+- **manual**: No automatic abort, just adds the `abort` action for manual control
+- **finally**: Auto-abort all operations when complete
+
+## Type Signature
+
+```typescript
+function withAbort(
+  strategy?: 'last-in-win' | 'first-in-win' | 'manual' | 'finally'
+): <T extends AtomLike>(target: T) => T & AbortExt
+
+interface AbortExt {
+  abort: Action<[reason?: any]>
+}
+```
+
+## Parameters
+
+<ParamField path="strategy" type="string" default="last-in-win" optional>
+  The abort strategy to use:
+  
+  - `'last-in-win'` (default): Aborts previous concurrent calls when a new one starts
+  - `'first-in-win'`: Ignores new calls while a previous one is still running
+  - `'manual'`: No automatic abort, just adds the `abort` action for manual control
+  - `'finally'`: Auto-aborts all operations when the action completes
+</ParamField>
+
+## Return Value
+
+<ResponseField name="abort" type="Action<[reason?: any]>">
+  Action to manually abort all active operations. Accepts an optional reason parameter.
+</ResponseField>
+
+## Examples
+
+### Last-in-Win (Default)
+
+Perfect for search/autocomplete where only the latest request matters:
+
+```typescript
+import { action } from '@reatom/core'
+import { withAbort } from '@reatom/core/extensions'
+import { wrap } from '@reatom/core/methods'
+
+const fetchUser = action(async (id: number) => {
+  const response = await wrap(fetch(`/api/user/${id}`))
+  return response.json()
+}).extend(withAbort())
+
+fetchUser(1) // will be aborted
+fetchUser(2) // will be aborted
+fetchUser(3) // this one wins
+```
+
+### First-in-Win
+
+Perfect for preventing duplicate submissions:
+
+```typescript
+const submitForm = action(async (data: FormData) => {
+  await wrap(fetch('/api/submit', {
+    method: 'POST',
+    body: data,
+  }))
+}).extend(withAbort('first-in-win'))
+
+submitForm(data) // runs
+submitForm(data) // ignored, returns previous promise
+submitForm(data) // ignored, returns previous promise
+```
+
+### Manual Abort
+
+Perfect for polling or long-running tasks:
+
+```typescript
+const pollData = action(async () => {
+  while (true) {
+    await wrap(sleep(1000))
+    const data = await wrap(fetch('/api/poll'))
+    processData(data)
+  }
+}).extend(withAbort('manual'))
+
+// Start polling
+pollData()
+
+// Stop polling when needed
+pollData.abort()
+```
+
+### Manual Abort - Multiple Concurrent Calls
+
+```typescript
+const doSome = action(async (id: string) => {
+  await wrap(sleep())
+  return `Result: ${id}`
+}).extend(withAbort('manual'))
+
+// All run concurrently
+doSome('a')
+doSome('b')
+doSome('c')
+
+// Abort all at once
+doSome.abort()
+```
+
+### First-in-Win with Manual Abort
+
+```typescript
+const fetch = action(async (n: number) => {
+  await wrap(sleep(10))
+  return n * 2
+}).extend(withAbort('first-in-win'))
+
+fetch(1) // runs
+fetch(2) // ignored
+
+await wrap(sleep())
+fetch.abort() // abort the running operation
+
+await wrap(fetch(3)) // now runs (previous was aborted)
+```
+
+### Abort Propagation
+
+Abort signals propagate through nested async operations:
+
+```typescript
+const doSome = action((n: number) => doOther(n), 'doSome').extend(
+  withAbort()
+)
+
+const doOther = action(async (n: number) => {
+  await wrap(sleep())
+  return n * 2
+}, 'doOther')
+
+const results: number[] = []
+doOther.onFulfill.extend(
+  withCallHook(({ payload }) => results.push(payload))
+)
+
+doSome(1)
+doSome(2)
+doSome(3)
+
+await wrap(sleep())
+
+// Only the last call completed
+console.log(results) // → [6]
+```
+
+### Abort in Computed Atoms
+
+```typescript
+import { atom, computed } from '@reatom/core'
+import { withAbort } from '@reatom/core/extensions'
+import { abortVar } from '@reatom/core/methods'
+
+const count = atom(0, 'count')
+
+const logs: string[] = []
+computed(async () => {
+  const state = count()
+  let running = true
+  logs.push(`${state} start`)
+  
+  abortVar.subscribe(() => {
+    running = false
+    logs.push(`${state} abort`)
+  })
+  
+  while (running) {
+    logs.push(`${state} loop`)
+    await wrap(sleep())
+  }
+}, 'loop').subscribe()
+
+await wrap(sleep())
+console.log(logs) // → ['0 start', '0 loop', '0 loop', ...]
+
+count.set(1)
+await wrap(sleep())
+console.log(logs) // → [..., '1 start', '1 loop', ...]
+// Previous computation was aborted
+```
+
+### Finally Strategy with Race
+
+```typescript
+import { race } from '@reatom/core/methods'
+
+const process = action(async () => {
+  const usersPromise = abortVar.createAndRun(() =>
+    fetch('/api/users').then(r => r.json())
+  )
+  const postsPromise = abortVar.createAndRun(() =>
+    fetch('/api/posts').then(r => r.json())
+  )
+  
+  // Race to see which completes first
+  const result = await wrap(race(usersPromise, postsPromise))
+  
+  // The loser gets aborted automatically
+  return result
+}).extend(withAbort('finally'))
+
+// All unfinished operations abort when process completes
+await wrap(process())
+```
+
+### Abort with Reason
+
+```typescript
+const longTask = action(async () => {
+  try {
+    while (true) {
+      await wrap(sleep(100))
+      doWork()
+    }
+  } catch (error) {
+    if (isAbort(error)) {
+      console.log('Aborted:', error.message)
+    }
+    throw error
+  }
+}).extend(withAbort('manual'))
+
+longTask()
+
+// Abort with custom reason
+longTask.abort('User cancelled')
+// Logs: "Aborted: User cancelled"
+```
+
+## Use Cases
+
+### Search/Autocomplete
+
+```typescript
+const searchQuery = atom('', 'searchQuery')
+
+const searchResults = computed(async () => {
+  const query = searchQuery()
+  if (!query) return []
+  
+  await wrap(sleep(300)) // debounce
+  const res = await wrap(fetch(`/api/search?q=${query}`))
+  return await wrap(res.json())
+}, 'searchResults').extend(
+  withAbort() // last-in-win: only latest search matters
+)
+```
+
+### Form Submission
+
+```typescript
+const submitOrder = action(async (order: Order) => {
+  const res = await wrap(fetch('/api/orders', {
+    method: 'POST',
+    body: JSON.stringify(order),
+  }))
+  return await wrap(res.json())
+}, 'submitOrder').extend(
+  withAbort('first-in-win') // prevent double submission
+)
+
+// Double-click protection built-in
+submitButton.onclick = () => submitOrder(currentOrder())
+```
+
+### Infinite Polling
+
+```typescript
+const startPolling = action(async () => {
+  while (true) {
+    try {
+      await wrap(sleep(5000))
+      const data = await wrap(fetch('/api/status'))
+      updateStatus(await wrap(data.json()))
+    } catch (error) {
+      if (isAbort(error)) break
+      console.error('Poll failed:', error)
+    }
+  }
+}, 'startPolling').extend(withAbort('manual'))
+
+// Start
+startPolling()
+
+// Stop when component unmounts
+onUnmount(() => startPolling.abort())
+```
+
+### Progressive Data Loading
+
+```typescript
+const loadUserData = action(async (userId: string) => {
+  // Quick data first
+  const profile = await wrap(fetch(`/api/users/${userId}/profile`))
+  updateProfile(await wrap(profile.json()))
+  
+  // Detailed data second (can be aborted if user navigates away)
+  const details = await wrap(fetch(`/api/users/${userId}/details`))
+  updateDetails(await wrap(details.json()))
+  
+  // Heavy data last (can be aborted)
+  const analytics = await wrap(fetch(`/api/users/${userId}/analytics`))
+  updateAnalytics(await wrap(analytics.json()))
+}, 'loadUserData').extend(withAbort())
+
+// If user changes quickly, old requests are aborted
+userIdAtom.subscribe((userId) => {
+  if (userId) loadUserData(userId)
+})
+```
+
+## Integration with AbortController
+
+Use `abortVar` to access the AbortController:
+
+```typescript
+import { abortVar } from '@reatom/core/methods'
+
+const fetchData = action(async (url: string) => {
+  const controller = abortVar()
+  
+  const response = await wrap(fetch(url, {
+    signal: controller?.signal
+  }))
+  
+  return await wrap(response.json())
+}).extend(withAbort())
+```
+
+## Related
+
+- [withAsync](/api/async/with-async) - Async state tracking (automatically includes withAbort when using withAsyncData)
+- [withAsyncData](/api/async/with-async-data) - Async data management with abort support
+- [abortVar](/api/core/abort-var) - Access AbortController in reactive context

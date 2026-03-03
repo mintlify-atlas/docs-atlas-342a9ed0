@@ -1,0 +1,472 @@
+---
+title: reatomLinkedList
+description: A primitive atom for managing linked list data structures with efficient insertions, deletions, and reordering
+---
+
+## Overview
+
+`reatomLinkedList` creates an atom that manages a doubly-linked list data structure with built-in methods for efficient node creation, removal, swapping, and movement. It's ideal for managing ordered collections where frequent reordering or insertion/deletion operations are needed.
+
+## Import
+
+```typescript
+import { reatomLinkedList } from '@reatom/core'
+```
+
+## Type Signature
+
+```typescript
+interface LinkedListAtom<
+  Params extends any[] = any[],
+  Node extends Rec = Rec,
+  Key extends keyof Node = never,
+> extends LinkedListLikeAtom<LinkedList<LLNode<Node>>> {
+  batch: Action<[cb: Fn]>
+
+  create: Action<Params, LLNode<Node>>
+  createMany: Action<[Array<Params>], Array<LLNode<Node>>>
+  remove: Action<[LLNode<Node>], boolean>
+  removeMany: Action<[Array<LLNode<Node>>], number>
+  swap: Action<[a: LLNode<Node>, b: LLNode<Node>], void>
+  move: Action<[node: LLNode<Node>, after: null | LLNode<Node>], void>
+  clear: Action<[], void>
+
+  find: (cb: (node: LLNode<Node>) => boolean) => null | LLNode<Node>
+
+  map: Key extends never ? never : Atom<Map<State<Node[Key]>, LLNode<Node>>>
+
+  array: Computed<Array<LLNode<Node>>>
+
+  reatomMap: <T extends Rec>(
+    cb: (node: LLNode<Node>) => T,
+    options?: ...
+  ) => LinkedListDerivedAtom<LLNode<Node>, LLNode<T>>
+}
+```
+
+## Symbols
+
+### LL_PREV and LL_NEXT
+
+Each linked list instance has unique symbols for traversing nodes:
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+
+const node = list.create(1)
+const prevNode = node[list.LL_PREV] // null for first node
+const nextNode = node[list.LL_NEXT] // null for last node
+```
+
+## Parameters
+
+`reatomLinkedList` has multiple overloads for different initialization patterns:
+
+### With Array of Initial State
+
+```typescript
+function reatomLinkedList<Node extends Rec>(
+  initState: Array<Node>,
+  name?: string
+): LinkedListAtom<[Node], Node, never>
+```
+
+<ParamField path="initState" type="Array<Node>">
+  An array of initial node objects
+</ParamField>
+
+<ParamField path="name" type="string" optional>
+  Optional name for debugging
+</ParamField>
+
+### With Creator Function
+
+```typescript
+function reatomLinkedList<Params extends any[], Node extends Rec>(
+  create: (...params: Params) => Node,
+  name?: string
+): LinkedListAtom<Params, Node, never>
+```
+
+<ParamField path="create" type="(...params: Params) => Node">
+  A function that creates a node from parameters
+</ParamField>
+
+### With Options Object
+
+```typescript
+function reatomLinkedList<Params extends any[], Node extends Rec, Key extends keyof Node>(
+  options: {
+    create?: (...params: Params) => Node
+    initState?: Array<Node>
+    initSnapshot?: Array<Params>
+    key?: Key
+  },
+  name?: string
+): LinkedListAtom<Params, Node, Key>
+```
+
+<ParamField path="options.create" type="(...params: Params) => Node" optional>
+  Function to create nodes from parameters
+</ParamField>
+
+<ParamField path="options.initState" type="Array<Node>" optional>
+  Initial nodes to populate the list
+</ParamField>
+
+<ParamField path="options.initSnapshot" type="Array<Params>" optional>
+  Parameters to create initial nodes
+</ParamField>
+
+<ParamField path="options.key" type="Key" optional>
+  Key field to create a reactive map of nodes by key
+</ParamField>
+
+## Properties
+
+### array
+
+A computed atom containing all nodes as an array.
+
+**Type:** `Computed<Array<LLNode<Node>>>`
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+list.create(1)
+list.create(2)
+list.create(3)
+
+console.log(list.array().map(node => node.n)) // [1, 2, 3]
+```
+
+### map
+
+When a `key` is specified, provides a reactive Map from key values to nodes.
+
+**Type:** `Atom<Map<State<Node[Key]>, LLNode<Node>>>`
+
+```typescript
+const list = reatomLinkedList({
+  create: (id: string) => ({ id: atom(id) }),
+  key: 'id',
+  initState: [{ id: atom('1') }, { id: atom('2') }]
+})
+
+const node = list.map().get('1')
+console.log(node?.id()) // '1'
+```
+
+## Methods
+
+### create
+
+Creates and appends a new node to the end of the list.
+
+<ParamField path="...params" type="Params">
+  Parameters passed to the creator function
+</ParamField>
+
+**Returns:** `LLNode<Node>` - The created node
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+
+const node = list.create(42)
+console.log(node.n) // 42
+console.log(list.array().map(n => n.n)) // [42]
+```
+
+### createMany
+
+Creates and appends multiple nodes at once.
+
+<ParamField path="paramsArray" type="Array<Params>">
+  Array of parameter sets for creating nodes
+</ParamField>
+
+**Returns:** `Array<LLNode<Node>>` - The created nodes
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+
+const nodes = list.createMany([[1], [2], [3], [4]])
+console.log(list.array().map(n => n.n)) // [1, 2, 3, 4]
+```
+
+### remove
+
+Removes a node from the list.
+
+<ParamField path="node" type="LLNode<Node>">
+  The node to remove
+</ParamField>
+
+**Returns:** `boolean` - `true` if the node was removed, `false` if it wasn't in the list
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+const node = list.create(1)
+list.create(2)
+
+const removed = list.remove(node)
+console.log(removed) // true
+console.log(list.array().map(n => n.n)) // [2]
+```
+
+### removeMany
+
+Removes multiple nodes from the list.
+
+<ParamField path="nodes" type="Array<LLNode<Node>>">
+  Array of nodes to remove
+</ParamField>
+
+**Returns:** `number` - The number of nodes actually removed
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+const nodes = list.createMany([[1], [2], [3], [4]])
+
+const removedCount = list.removeMany([nodes[1]!, nodes[3]!])
+console.log(removedCount) // 2
+console.log(list.array().map(n => n.n)) // [1, 3]
+```
+
+### swap
+
+Swaps the positions of two nodes in the list.
+
+<ParamField path="a" type="LLNode<Node>">
+  First node
+</ParamField>
+
+<ParamField path="b" type="LLNode<Node>">
+  Second node
+</ParamField>
+
+**Returns:** `void`
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+const one = list.create(1)
+const two = list.create(2)
+const three = list.create(3)
+
+list.swap(one, three)
+console.log(list.array().map(n => n.n)) // [3, 2, 1]
+```
+
+### move
+
+Moves a node to a new position in the list.
+
+<ParamField path="node" type="LLNode<Node>">
+  The node to move
+</ParamField>
+
+<ParamField path="after" type="LLNode<Node> | null">
+  The node after which to insert, or `null` to move to the beginning
+</ParamField>
+
+**Returns:** `void`
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+const one = list.create(1)
+const two = list.create(2)
+const three = list.create(3)
+const four = list.create(4)
+
+list.move(one, four) // Move 1 after 4
+console.log(list.array().map(n => n.n)) // [2, 3, 4, 1]
+
+list.move(one, null) // Move 1 to beginning
+console.log(list.array().map(n => n.n)) // [1, 2, 3, 4]
+```
+
+### clear
+
+Removes all nodes from the list.
+
+**Returns:** `void`
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+list.createMany([[1], [2], [3]])
+
+list.clear()
+console.log(list().size) // 0
+```
+
+### find
+
+Finds the first node that matches a predicate.
+
+<ParamField path="cb" type="(node: LLNode<Node>) => boolean">
+  Predicate function
+</ParamField>
+
+**Returns:** `LLNode<Node> | null` - The found node or `null`
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+list.createMany([[1], [2], [3]])
+
+const node = list.find(n => n.n === 2)
+console.log(node?.n) // 2
+```
+
+### batch
+
+Batches multiple operations into a single update.
+
+<ParamField path="cb" type="Fn">
+  Callback containing operations to batch
+</ParamField>
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+
+list.batch(() => {
+  list.create(1)
+  list.create(2)
+  list.create(3)
+})
+// Only triggers one update for all three creates
+```
+
+### reatomMap
+
+Creates a derived linked list by mapping each node.
+
+<ParamField path="cb" type="(node: LLNode<Node>) => T">
+  Function to transform each node
+</ParamField>
+
+<ParamField path="options" type="object | string" optional>
+  Configuration options or name string
+</ParamField>
+
+**Returns:** `LinkedListDerivedAtom<LLNode<Node>, LLNode<T>>`
+
+```typescript
+const list = reatomLinkedList((n: number) => ({ n }))
+const mapped = list.reatomMap(({ n }) => ({ doubled: n * 2 }))
+
+list.createMany([[1], [2], [3]])
+
+console.log(mapped.array().map(node => node.doubled)) // [2, 4, 6]
+```
+
+## Basic Usage
+
+```typescript
+import { reatomLinkedList } from '@reatom/core'
+
+// Create a linked list with a creator function
+const todoList = reatomLinkedList((text: string) => ({
+  text,
+  completed: false
+}))
+
+// Add items
+const todo1 = todoList.create('Learn Reatom')
+const todo2 = todoList.create('Build app')
+const todo3 = todoList.create('Deploy')
+
+// Access as array
+console.log(todoList.array().map(t => t.text))
+// ['Learn Reatom', 'Build app', 'Deploy']
+
+// Remove an item
+todoList.remove(todo2)
+
+// Reorder items
+todoList.move(todo3, null) // Move to beginning
+```
+
+## Advanced Usage
+
+### Task Management with Atoms
+
+```typescript
+import { atom } from '@reatom/core'
+
+interface Task {
+  id: string
+  title: atom<string>
+  completed: atom<boolean>
+}
+
+const tasks = reatomLinkedList({
+  create: (id: string, title: string) => ({
+    id: atom(id),
+    title: atom(title),
+    completed: atom(false)
+  }),
+  key: 'id',
+})
+
+const task = tasks.create('task-1', 'My task')
+
+// Access by key
+const foundTask = tasks.map().get('task-1')
+foundTask?.title.set('Updated title')
+```
+
+### Drag and Drop List
+
+```typescript
+const items = reatomLinkedList((id: string) => ({ id }))
+
+function handleDrop(draggedNode: LLNode<{ id: string }>, targetNode: LLNode<{ id: string }>) {
+  items.move(draggedNode, targetNode)
+}
+
+function handleDelete(node: LLNode<{ id: string }>) {
+  items.remove(node)
+}
+```
+
+### Derived Views
+
+```typescript
+const users = reatomLinkedList((name: string, active: boolean) => ({
+  name,
+  active
+}))
+
+const activeUsers = users.reatomMap(
+  node => node.active ? { name: node.name } : null,
+  {
+    name: 'activeUsers',
+    onCreate: (node) => console.log('Active user added:', node?.name),
+    onRemove: (node) => console.log('Active user removed:', node?.name)
+  }
+)
+```
+
+### Initialize from Snapshot
+
+```typescript
+const list = reatomLinkedList({
+  create: (id: string, name: string) => ({ id, name }),
+  initSnapshot: [
+    ['1', 'Alice'],
+    ['2', 'Bob'],
+    ['3', 'Charlie']
+  ]
+})
+
+console.log(list.array().map(u => u.name)) // ['Alice', 'Bob', 'Charlie']
+```
+
+## Notes
+
+- Each linked list has unique `LL_PREV` and `LL_NEXT` symbols, allowing nodes to exist in multiple lists
+- All mutations create structural updates efficiently through the linked list structure
+- The `array` property is computed and memoized for performance
+- `batch` should be used when performing multiple operations to reduce update overhead
+- Nodes must be objects or functions; primitive values are not supported
+- The `key` option enables efficient lookups by creating a reactive Map
+- Direct manipulation of node pointers is not recommended; use the provided methods

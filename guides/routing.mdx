@@ -1,0 +1,651 @@
+---
+title: Routing
+description: Build type-safe, framework-agnostic routing with nested routes, loaders, and schema validation
+---
+
+# Routing
+
+Reatom's routing system provides a powerful, type-safe solution for building single-page applications with nested routes, data loading, and automatic parameter validation.
+
+## Core Concepts
+
+Reatom routing is built on these principles:
+
+- **Declarative Routes** - Define routes with path patterns and schemas
+- **Type Safety** - Full TypeScript inference for route parameters
+- **Data Loading** - Automatic data fetching with loader functions
+- **Nested Routes** - Hierarchical route composition
+- **Framework Agnostic** - Works with React, Vue, Lit, or vanilla JS
+
+## Quick Start
+
+### Basic Routes
+
+```ts
+import { reatomRoute } from '@reatom/core/routing'
+
+// Create routes
+const homeRoute = reatomRoute('')
+const aboutRoute = reatomRoute('about')
+const userRoute = reatomRoute('users/:userId')
+
+// Navigate
+homeRoute.go()
+aboutRoute.go()
+userRoute.go({ userId: '123' })
+
+// Check if route is active
+if (userRoute()) {
+  const params = userRoute() // { userId: '123' }
+  console.log(params.userId)
+}
+```
+
+## Route Patterns
+
+### Path Parameters
+
+Define dynamic segments with `:paramName`:
+
+```ts
+// Required parameter
+const userRoute = reatomRoute('users/:userId')
+userRoute.go({ userId: '123' }) // /users/123
+
+// Optional parameter
+const postRoute = reatomRoute('posts/:postId?')
+postRoute.go()                    // /posts
+postRoute.go({ postId: 'abc' })   // /posts/abc
+
+// Multiple parameters
+const commentRoute = reatomRoute('posts/:postId/comments/:commentId')
+commentRoute.go({ 
+  postId: '1', 
+  commentId: '42' 
+}) // /posts/1/comments/42
+```
+
+### Search Parameters
+
+Define query parameters with a schema:
+
+```ts
+import { z } from 'zod'
+
+const searchRoute = reatomRoute({
+  path: 'search',
+  search: z.object({
+    q: z.string().optional(),
+    page: z.string().transform(Number).default('1'),
+    sort: z.enum(['asc', 'desc']).optional(),
+  }),
+})
+
+searchRoute.go({ 
+  q: 'reatom', 
+  page: 2,
+  sort: 'desc' 
+})
+// URL: /search?q=reatom&page=2&sort=desc
+
+const params = searchRoute()
+params?.q      // string | undefined
+params?.page   // number
+params?.sort   // 'asc' | 'desc' | undefined
+```
+
+### Search-Only Routes
+
+Create routes that only affect query parameters:
+
+```ts
+const dialogRoute = reatomRoute({
+  search: z.object({
+    dialog: z.enum(['login', 'signup']).optional(),
+  }),
+})
+
+// Preserves current pathname, only updates search params
+dialogRoute.go({ dialog: 'login' })
+// URL: /current-path?dialog=login
+```
+
+## Parameter Validation
+
+### Schema Validation
+
+Use Standard Schema (Zod, Valibot, etc.) for validation:
+
+```ts
+import { z } from 'zod'
+
+const userRoute = reatomRoute({
+  path: 'users/:userId',
+  params: z.object({
+    userId: z.string().regex(/^\d+$/).transform(Number),
+  }),
+})
+
+// Valid: converts string to number
+userRoute.go({ userId: '123' })
+const params = userRoute() // { userId: 123 } - number type!
+
+// Invalid: won't match
+userRoute.go({ userId: 'abc' }) // Route won't match
+userRoute() // → null
+```
+
+### Custom Validators
+
+Use functions for custom validation:
+
+```ts
+const userRoute = reatomRoute({
+  path: 'users/:userId',
+  params: (params: { userId: string }) => {
+    const id = parseInt(params.userId)
+    return isNaN(id) ? null : { userId: id }
+  },
+})
+```
+
+## Nested Routes
+
+### Creating Child Routes
+
+Build hierarchical route structures:
+
+```ts
+// Parent route
+const usersRoute = reatomRoute('users')
+
+// Child routes
+const userListRoute = usersRoute.reatomRoute('')
+const userDetailRoute = usersRoute.reatomRoute(':userId')
+const userEditRoute = userDetailRoute.reatomRoute('edit')
+
+// Full paths:
+// userListRoute   → /users
+// userDetailRoute → /users/:userId
+// userEditRoute   → /users/:userId/edit
+```
+
+### Accessing Parent Parameters
+
+Child routes inherit parent parameters:
+
+```ts
+const usersRoute = reatomRoute('users/:userId')
+const postsRoute = usersRoute.reatomRoute('posts/:postId')
+
+postsRoute.go({ userId: '1', postId: '42' })
+// URL: /users/1/posts/42
+
+const params = postsRoute()
+params?.userId  // '1'
+params?.postId  // '42'
+```
+
+## Route State
+
+### Match vs Exact
+
+<CodeGroup>
+
+```ts Match (partial)
+const usersRoute = reatomRoute('users')
+const userRoute = usersRoute.reatomRoute(':userId')
+
+// At URL: /users/123
+
+usersRoute.match()  // → true (partial match)
+userRoute.match()   // → true (exact match)
+```
+
+```ts Exact
+const usersRoute = reatomRoute('users')
+const userRoute = usersRoute.reatomRoute(':userId')
+
+// At URL: /users/123
+
+usersRoute.exact()  // → false (not exact)
+userRoute.exact()   // → true (exact match)
+```
+
+</CodeGroup>
+
+### Route Parameters
+
+```ts
+const userRoute = reatomRoute('users/:userId')
+
+// When matched
+userRoute() // → { userId: '123' } | null
+
+// When not matched
+userRoute() // → null
+```
+
+## Data Loading
+
+### Loader Functions
+
+Automatically fetch data when routes become active:
+
+```ts
+import { wrap } from '@reatom/core'
+
+const userRoute = reatomRoute({
+  path: 'users/:userId',
+  params: z.object({
+    userId: z.string().transform(Number),
+  }),
+  async loader({ userId }) {
+    const res = await wrap(fetch(`/api/users/${userId}`))
+    return await wrap(res.json())
+  },
+})
+
+// Access loaded data
+const user = userRoute.loader.data()
+
+// Loading state
+const isLoading = !userRoute.loader.ready()
+
+// Error handling
+const error = userRoute.loader.error()
+```
+
+### Loader State
+
+Loaders are extended with `withAsyncData`:
+
+```ts
+// Loading states
+userRoute.loader.pending()  // Number of pending loads
+userRoute.loader.ready()    // Is load complete?
+
+// Data and errors
+userRoute.loader.data()     // Loaded data
+userRoute.loader.error()    // Load error if any
+
+// Detailed status
+userRoute.loader.status()   // Full status tracking
+
+// Retry
+await wrap(userRoute.loader.retry())
+```
+
+### Cascading Loaders
+
+Parent loaders complete before child loaders:
+
+```ts
+const userRoute = reatomRoute({
+  path: 'users/:userId',
+  async loader({ userId }) {
+    // Load user first
+    const user = await wrap(fetchUser(userId))
+    return user
+  },
+})
+
+const postsRoute = userRoute.reatomRoute({
+  path: 'posts',
+  async loader({ userId }) {
+    // userRoute.loader completes first
+    // Then this loader runs
+    const posts = await wrap(fetchUserPosts(userId))
+    return posts
+  },
+})
+```
+
+### Automatic Abort
+
+Loaders are automatically aborted when:
+- Navigating to a different route
+- Route parameters change
+- Parent route becomes inactive
+
+```ts
+const searchRoute = reatomRoute({
+  path: 'search',
+  search: z.object({ q: z.string() }),
+  async loader({ q }) {
+    // Aborted if q changes before completion
+    const res = await wrap(fetch(`/api/search?q=${q}`))
+    return await wrap(res.json())
+  },
+})
+
+searchRoute.go({ q: 'react' })  // Starts loader
+searchRoute.go({ q: 'reatom' }) // Aborts previous, starts new
+```
+
+## Component Rendering
+
+### Render Functions
+
+Define components directly in routes:
+
+```tsx
+import { html } from 'lit'
+
+const layoutRoute = reatomRoute({
+  render(self) {
+    return html`
+      <div class="layout">
+        <header>My App</header>
+        <main>${self.outlet().map(child => child)}</main>
+      </div>
+    `
+  },
+})
+
+const homeRoute = layoutRoute.reatomRoute({
+  path: '',
+  render() {
+    return html`<h1>Home Page</h1>`
+  },
+})
+
+const aboutRoute = layoutRoute.reatomRoute({
+  path: 'about',
+  render() {
+    return html`<h1>About Page</h1>`
+  },
+})
+```
+
+### Outlet
+
+Render active child routes:
+
+```tsx
+const layoutRoute = reatomRoute({
+  render(self) {
+    const children = self.outlet() // Array<RouteChild>
+    return html`
+      <div>
+        <nav>Navigation</nav>
+        <main>${children.map(child => child)}</main>
+      </div>
+    `
+  },
+})
+```
+
+### Exact Rendering
+
+Only render on exact match:
+
+```tsx
+const userRoute = reatomRoute({
+  path: 'users/:userId',
+  exactRender: true, // Only renders on exact /users/:userId
+  render(self) {
+    const { userId } = self()
+    return html`<div>User ${userId}</div>`
+  },
+})
+```
+
+## Navigation
+
+### Programmatic Navigation
+
+<Steps>
+
+### Using route.go()
+
+```ts
+const userRoute = reatomRoute('users/:userId')
+
+// Navigate to route
+userRoute.go({ userId: '123' })
+
+// Replace history entry
+userRoute.go({ userId: '456' }, true)
+```
+
+### Using urlAtom
+
+```ts
+import { urlAtom } from '@reatom/core/web'
+
+// Navigate to URL
+urlAtom.go('/users/123')
+
+// Replace history
+urlAtom.set(new URL('/about', location.href), true)
+```
+
+### Build URLs
+
+```ts
+const userRoute = reatomRoute('users/:userId')
+
+// Get URL string
+const url = userRoute.path({ userId: '123' })
+// → "/users/123"
+
+// Use in links
+const link = html`<a href=${userRoute.path({ userId: '123' })}>View User</a>`
+```
+
+</Steps>
+
+## Advanced Patterns
+
+### 404 Handling
+
+```ts
+import { is404 } from '@reatom/core/routing'
+import { reatomComponent } from '@reatom/npm-react'
+
+function App() {
+  const [notFound] = useAtom(is404)
+  
+  if (notFound) {
+    return <NotFoundPage />
+  }
+  
+  return (
+    <div>
+      {layoutRoute.render()}
+    </div>
+  )
+}
+```
+
+### Protected Routes
+
+```ts
+const isAuthenticated = atom(false, 'isAuthenticated')
+
+const protectedRoute = reatomRoute({
+  path: 'dashboard',
+  render(self) {
+    if (!isAuthenticated()) {
+      loginRoute.go()
+      return null
+    }
+    return html`<Dashboard />`
+  },
+})
+```
+
+### Route Guards
+
+```ts
+import { effect } from '@reatom/core'
+
+const adminRoute = reatomRoute('admin/:section')
+
+effect(() => {
+  const params = adminRoute()
+  
+  if (params && !isAdmin()) {
+    // Redirect if not admin
+    homeRoute.go()
+  }
+})
+```
+
+### Loading Indicators
+
+```ts
+import { isSomeLoaderPending } from '@reatom/core/routing'
+import { reatomComponent } from '@reatom/npm-react'
+
+function App() {
+  const [isLoading] = useAtom(isSomeLoaderPending)
+  
+  return (
+    <div>
+      {isLoading && <LoadingBar />}
+      <Router />
+    </div>
+  )
+}
+```
+
+### Modal Routes
+
+Use search-only routes for modals:
+
+```ts
+const modalRoute = reatomRoute({
+  search: z.object({
+    modal: z.enum(['login', 'signup', 'settings']).optional(),
+  }),
+})
+
+function App() {
+  const [params] = useAtom(modalRoute)
+  
+  return (
+    <div>
+      <MainContent />
+      {params?.modal === 'login' && <LoginModal />}
+      {params?.modal === 'signup' && <SignupModal />}
+      {params?.modal === 'settings' && <SettingsModal />}
+    </div>
+  )
+}
+
+// Open modal without changing the page
+modalRoute.go({ modal: 'login' })
+```
+
+### Breadcrumbs
+
+```tsx
+function Breadcrumbs() {
+  const routes = [
+    { route: homeRoute, label: 'Home' },
+    { route: usersRoute, label: 'Users' },
+    { route: userRoute, label: 'User Details' },
+  ]
+  
+  return (
+    <nav>
+      {routes.map(({ route, label }) => (
+        route.match() && (
+          <span key={label}>
+            {route.exact() ? (
+              <strong>{label}</strong>
+            ) : (
+              <a href={route.path(route())}>{label}</a>
+            )}
+          </span>
+        )
+      ))}
+    </nav>
+  )
+}
+```
+
+## Best Practices
+
+### 1. Use Nested Routes
+
+Organize routes hierarchically:
+
+```ts
+// ✓ Good - clear hierarchy
+const usersRoute = reatomRoute('users')
+const userRoute = usersRoute.reatomRoute(':userId')
+const userEditRoute = userRoute.reatomRoute('edit')
+
+// ✗ Bad - flat structure
+const usersRoute = reatomRoute('users')
+const userRoute = reatomRoute('users/:userId')
+const userEditRoute = reatomRoute('users/:userId/edit')
+```
+
+### 2. Validate Parameters
+
+Always validate and transform route parameters:
+
+```ts
+// ✓ Good - validated and typed
+const userRoute = reatomRoute({
+  path: 'users/:userId',
+  params: z.object({
+    userId: z.string().regex(/^\d+$/).transform(Number),
+  }),
+})
+
+// ✗ Bad - no validation
+const userRoute = reatomRoute('users/:userId')
+```
+
+### 3. Use Loaders for Data
+
+Prefer loaders over manual fetching:
+
+```ts
+// ✓ Good - automatic loading and abort
+const userRoute = reatomRoute({
+  path: 'users/:userId',
+  async loader({ userId }) {
+    return await wrap(fetchUser(userId))
+  },
+})
+
+// ✗ Bad - manual effect
+const userRoute = reatomRoute('users/:userId')
+effect(() => {
+  const params = userRoute()
+  if (params) fetchUser(params.userId)
+})
+```
+
+### 4. Handle Errors
+
+Always handle loader errors:
+
+```tsx
+function UserPage() {
+  const [user] = useAtom(userRoute.loader.data)
+  const [error] = useAtom(userRoute.loader.error)
+  const [ready] = useAtom(userRoute.loader.ready)
+  
+  if (!ready) return <Loading />
+  if (error) return <Error error={error} />
+  if (!user) return <NotFound />
+  
+  return <UserDetails user={user} />
+}
+```
+
+<Warning>
+  Always use `wrap()` around promises in loaders to enable automatic abort handling.
+</Warning>
+
+## Related APIs
+
+- [reatomRoute()](/api/routing/reatom-route) - Create a route
+- [searchParamsAtom](/api/routing/search-params) - Access search parameters

@@ -1,0 +1,442 @@
+---
+title: 'searchParamsAtom'
+description: 'Manage URL search/query parameters reactively with lenses and sync capabilities'
+---
+
+## Overview
+
+`searchParamsAtom` provides reactive access to URL search parameters (query strings). It offers:
+- Read search params as an object
+- Set/delete individual parameters
+- Create synced atoms with `lens()`
+- Path-scoped synchronization
+- Serialization and parsing
+
+## Type Signature
+
+```typescript
+interface SearchParamsAtom extends Computed<Record<string, string>> {
+  set: Action<[key: string, value: string, replace?: boolean], void>
+  del: Action<[key: string, replace?: boolean], void>
+  lens<T>(key: string, parse?: (value?: string) => T): Atom<T>
+  lens<T>(key: string, options: LensOptions<T>): Atom<T>
+}
+
+const searchParamsAtom: SearchParamsAtom
+```
+
+## API
+
+### Reading Parameters
+
+<ResponseField name="searchParamsAtom" type="Computed<Record<string, string>>">
+  Returns current search parameters as an object
+</ResponseField>
+
+### Setting Parameters
+
+<ResponseField name="searchParamsAtom.set" type="Action<[key, value, replace?], void>">
+  Set a search parameter
+
+  <Expandable title="parameters">
+    <ParamField path="key" type="string" required>
+      Parameter name
+    </ParamField>
+
+    <ParamField path="value" type="string" required>
+      Parameter value
+    </ParamField>
+
+    <ParamField path="replace" type="boolean" default="false">
+      Whether to replace current history entry
+    </ParamField>
+  </Expandable>
+</ResponseField>
+
+### Deleting Parameters
+
+<ResponseField name="searchParamsAtom.del" type="Action<[key, replace?], void>">
+  Delete a search parameter
+
+  <Expandable title="parameters">
+    <ParamField path="key" type="string" required>
+      Parameter name to delete
+    </ParamField>
+
+    <ParamField path="replace" type="boolean" default="false">
+      Whether to replace current history entry
+    </ParamField>
+  </Expandable>
+</ResponseField>
+
+### Creating Lenses
+
+<ResponseField name="searchParamsAtom.lens" type="Function">
+  Create an atom synchronized with a specific search parameter
+
+  <Expandable title="parameters">
+    <ParamField path="key" type="string" required>
+      Parameter name
+    </ParamField>
+
+    <ParamField path="parse" type="(value?: string) => T">
+      Function to parse parameter string value to desired type
+    </ParamField>
+
+    <ParamField path="options" type="LensOptions<T>">
+      Advanced lens configuration:
+
+      <Expandable title="LensOptions properties">
+        <ParamField path="parse" type="(value?: string) => T">
+          Parse parameter string to desired type
+        </ParamField>
+
+        <ParamField path="serialize" type="(value: T) => string | undefined">
+          Serialize value back to string. Return `undefined` to remove parameter.
+        </ParamField>
+
+        <ParamField path="replace" type="boolean" default="false">
+          Whether to replace history entries when syncing
+        </ParamField>
+
+        <ParamField path="path" type="string">
+          Limit sync to specific URL paths. Supports wildcards (e.g., `/results/*`)
+        </ParamField>
+
+        <ParamField path="name" type="string">
+          Debug name for the created atom
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ResponseField>
+
+## withSearchParams
+
+`withSearchParams` is an extension that adds search parameter synchronization to any atom.
+
+```typescript
+function withSearchParams<T>(
+  key: string,
+  parse?: (value?: string) => T
+): <Target extends Atom<T>>(target: Target) => Target
+
+function withSearchParams<T>(
+  key: string,
+  options: LensOptions<T>
+): <Target extends Atom<T>>(target: Target) => Target
+```
+
+## Examples
+
+### Reading Search Params
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+// URL: /search?q=reatom&page=2
+
+const params = searchParamsAtom()
+console.log(params) // { q: 'reatom', page: '2' }
+console.log(params.q) // 'reatom'
+console.log(params.page) // '2'
+```
+
+### Setting Parameters
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+// Set a parameter
+searchParamsAtom.set('q', 'reatom')
+// URL: ?q=reatom
+
+searchParamsAtom.set('page', '2')
+// URL: ?q=reatom&page=2
+
+// Replace history entry
+searchParamsAtom.set('sort', 'desc', true)
+// URL: ?q=reatom&page=2&sort=desc
+```
+
+### Deleting Parameters
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+// URL: ?q=reatom&page=2&sort=desc
+
+searchParamsAtom.del('sort')
+// URL: ?q=reatom&page=2
+
+searchParamsAtom.del('page', true) // with replace
+// URL: ?q=reatom
+```
+
+### Basic Lens
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+// Create synced atom
+const pageAtom = searchParamsAtom.lens('page', (value = '1') => Number(value))
+
+pageAtom.subscribe()
+
+// URL: ?page=2
+console.log(pageAtom()) // 2
+
+// Update atom updates URL
+pageAtom.set(3)
+// URL: ?page=3
+```
+
+### Lens with Serialization
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+const filterAtom = searchParamsAtom.lens('filter', {
+  parse: (value) => value?.split(',') ?? [],
+  serialize: (value) => value.length > 0 ? value.join(',') : undefined,
+})
+
+filterAtom.subscribe()
+
+// URL: ?filter=active,verified
+console.log(filterAtom()) // ['active', 'verified']
+
+// Update
+filterAtom.set(['active'])
+// URL: ?filter=active
+
+// Clear (removes from URL)
+filterAtom.set([])
+// URL: (no filter param)
+```
+
+### Path-Scoped Lens
+
+```typescript
+import { searchParamsAtom, urlAtom } from '@reatom/framework'
+
+const searchQuery = searchParamsAtom.lens('q', {
+  parse: (value = '') => value,
+  path: '/search',
+})
+
+searchQuery.subscribe()
+
+// At /search?q=reatom
+console.log(searchQuery()) // 'reatom'
+
+searchQuery.set('typescript')
+// URL: /search?q=typescript
+
+// Navigate away from /search
+urlAtom.go('/home')
+console.log(searchQuery()) // '' (reset to default)
+
+// Navigate back to /search
+urlAtom.go('/search?q=typescript')
+console.log(searchQuery()) // 'typescript'
+```
+
+### Wildcard Path Scope
+
+```typescript
+import { atom } from '@reatom/framework'
+import { withSearchParams } from '@reatom/framework'
+
+// Sync on any path under /results/
+const sortAtom = atom('asc').extend(
+  withSearchParams('sort', {
+    path: '/results/*',
+  })
+)
+
+sortAtom.subscribe()
+
+// At /results
+sortAtom.set('desc')
+// URL: /results?sort=desc
+
+// At /results/detailed
+sortAtom.set('asc')
+// URL: /results/detailed?sort=asc
+
+// At /other
+sortAtom.set('desc')
+// URL: /other (no sort param added)
+```
+
+### Using withSearchParams Extension
+
+```typescript
+import { atom } from '@reatom/framework'
+import { withSearchParams } from '@reatom/framework'
+
+const pageAtom = atom(1).extend(
+  withSearchParams('page', {
+    parse: (value = '1') => Number(value),
+    serialize: (value) => value.toString(),
+  })
+)
+
+pageAtom.subscribe()
+
+// URL: ?page=2
+console.log(pageAtom()) // 2
+
+pageAtom.set(3)
+// URL: ?page=3
+```
+
+### Type Transformations
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+// Boolean param
+const debugAtom = searchParamsAtom.lens('debug', {
+  parse: (value) => value === 'true',
+  serialize: (value) => value ? 'true' : undefined,
+})
+
+// Number param
+const pageAtom = searchParamsAtom.lens('page', {
+  parse: (value = '1') => Number(value),
+  serialize: (value) => value.toString(),
+})
+
+// Enum param
+type SortOrder = 'asc' | 'desc'
+const sortAtom = searchParamsAtom.lens<SortOrder>('sort', {
+  parse: (value = 'asc') => value as SortOrder,
+  serialize: (value) => value,
+})
+```
+
+### Conditional Parameter Removal
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+const tabAtom = searchParamsAtom.lens<string | undefined>('tab', {
+  parse: (value) => value,
+  serialize: (value) => {
+    // Remove param when value is 'overview' (default)
+    return value === 'overview' ? undefined : value
+  },
+})
+
+tabAtom.subscribe()
+
+tabAtom.set('settings')
+// URL: ?tab=settings
+
+tabAtom.set('overview')
+// URL: (no tab param)
+```
+
+### Replace History Mode
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+// Replace history entries instead of adding new ones
+const filterAtom = searchParamsAtom.lens('filter', {
+  parse: (value = '') => value,
+  replace: true,
+})
+
+filterAtom.subscribe()
+
+// Each change replaces current history entry
+filterAtom.set('active')
+filterAtom.set('verified')
+filterAtom.set('pending')
+// Browser back button skips intermediate states
+```
+
+### Multi-Value Parameters
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+const tagsAtom = searchParamsAtom.lens<string[]>('tags', {
+  parse: (value) => value?.split(',').filter(Boolean) ?? [],
+  serialize: (value) => value.length > 0 ? value.join(',') : undefined,
+})
+
+tagsAtom.subscribe()
+
+tagsAtom.set(['react', 'typescript', 'reatom'])
+// URL: ?tags=react,typescript,reatom
+
+console.log(tagsAtom()) // ['react', 'typescript', 'reatom']
+```
+
+### JSON Parameters
+
+```typescript
+import { searchParamsAtom } from '@reatom/framework'
+
+interface Filters {
+  status: string[]
+  priority: number
+}
+
+const filtersAtom = searchParamsAtom.lens<Filters>('filters', {
+  parse: (value) => {
+    if (!value) return { status: [], priority: 0 }
+    try {
+      return JSON.parse(decodeURIComponent(value))
+    } catch {
+      return { status: [], priority: 0 }
+    }
+  },
+  serialize: (value) => {
+    const isEmpty = value.status.length === 0 && value.priority === 0
+    return isEmpty ? undefined : encodeURIComponent(JSON.stringify(value))
+  },
+})
+
+filtersAtom.subscribe()
+
+filtersAtom.set({ status: ['active', 'pending'], priority: 1 })
+// URL: ?filters=%7B%22status%22%3A%5B%22active%22%2C%22pending%22%5D%2C%22priority%22%3A1%7D
+```
+
+### Sync from External Source
+
+```typescript
+import { urlAtom, searchParamsAtom } from '@reatom/framework'
+
+// Current state
+console.log(searchParamsAtom()) // { page: '1' }
+
+// Sync from external URL update
+const newUrl = new URL(urlAtom().href)
+newUrl.searchParams.set('page', '2')
+newUrl.searchParams.set('sort', 'desc')
+urlAtom.syncFromSource(newUrl)
+
+console.log(searchParamsAtom()) // { page: '2', sort: 'desc' }
+```
+
+## Path Scope Behavior
+
+When using `path` option:
+
+- Exact paths: `/results` matches only `/results/` (trailing slash normalized)
+- Wildcard paths: `/results/*` matches `/results/anything`
+- No path: Syncs on all paths
+- On path mismatch:
+  - Atom resets to initial state
+  - Changes to atom don't update URL
+
+## Related
+
+- [reatomRoute](/api/routing/reatom-route) - Route atoms with built-in search param support
+- [urlAtom](/api/routing/url-atom) - Global URL atom

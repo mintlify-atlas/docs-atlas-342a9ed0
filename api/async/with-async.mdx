@@ -1,0 +1,254 @@
+---
+title: withAsync
+description: Extension that adds async state tracking to atoms or actions that return promises
+---
+
+## Overview
+
+The `withAsync` extension adds comprehensive async state management to atoms or actions that return promises. It automatically tracks pending operations, manages errors, and provides lifecycle hooks for handling async events.
+
+This extension preserves Reatom context across async operations, ensuring that async results properly update Reatom state.
+
+## Type Signature
+
+```typescript
+function withAsync<Err = Error, EmptyErr = undefined>(
+  options?: AsyncOptions<Err, EmptyErr>
+): <T extends AtomLike>(
+  target: T
+) => T extends AtomLike<any, infer Params, Promise<infer Payload>>
+  ? T & AsyncExt<Params, Payload, Err | EmptyErr>
+  : never
+```
+
+## Parameters
+
+<ParamField path="options" type="AsyncOptions" optional>
+  Configuration options for async handling
+  
+  <Expandable title="properties">
+    <ParamField path="parseError" type="(error: unknown) => Err" optional>
+      Function to transform raw errors into a specific error type
+      
+      **Default:** Converts to `Error` instance
+    </ParamField>
+    
+    <ParamField path="emptyError" type="EmptyErr" optional>
+      Initial/reset value for the error atom
+      
+      **Default:** `undefined`
+    </ParamField>
+    
+    <ParamField path="resetError" type="null | 'onCall' | 'onFulfill'" optional>
+      When to reset the error state
+      
+      - `'onCall'`: Reset error when the async operation starts (default)
+      - `'onFulfill'`: Reset error only when the operation succeeds
+      - `null`: Never automatically reset errors
+      
+      **Default:** `'onCall'`
+    </ParamField>
+    
+    <ParamField path="status" type="boolean" optional>
+      Whether to enable the `status` atom for detailed async operation tracking
+      
+      **Default:** `false`
+    </ParamField>
+    
+    <ParamField path="cacheParams" type="boolean" optional>
+      Whether to enable caching of the last called parameters for the retry functionality
+      
+      **Default:** `false`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Value
+
+Returns the target extended with the following properties:
+
+<ResponseField name="ready" type="Computed<boolean>">
+  Computed atom that indicates when no async operations are pending
+</ResponseField>
+
+<ResponseField name="pending" type="Computed<number>">
+  Computed atom tracking how many async operations are currently pending
+</ResponseField>
+
+<ResponseField name="error" type="Atom<undefined | Error>">
+  Atom containing the most recent error or undefined if no error has occurred
+</ResponseField>
+
+<ResponseField name="onFulfill" type="Action<[payload, params], { payload, params }>">
+  Action that is called when the promise resolves successfully
+</ResponseField>
+
+<ResponseField name="onReject" type="Action<[error, params], { error, params }>">
+  Action that is called when the promise rejects with an error
+</ResponseField>
+
+<ResponseField name="onSettle" type="Action">
+  Action called after either successful resolution or rejection
+</ResponseField>
+
+<ResponseField name="retry" type="Action<[], Promise<Payload>>">
+  Action that retries the last async operation
+  
+  - For atoms: re-evaluates the computed atom
+  - For actions: calls it with the cached params (requires `cacheParams: true`)
+</ResponseField>
+
+<ResponseField name="params" type="Atom<null | Params>">
+  Atom that caches the last called parameters (requires `cacheParams: true`)
+</ResponseField>
+
+<ResponseField name="status" type="AsyncStatusAtom">
+  Atom that tracks detailed async operation status (requires `status: true`)
+</ResponseField>
+
+## Examples
+
+### Basic Usage with Action
+
+```typescript
+import { action } from '@reatom/core'
+import { withAsync } from '@reatom/core/async'
+import { wrap } from '@reatom/core/methods'
+
+const fetchUser = action(async (userId: string) => {
+  const response = await wrap(fetch(`/api/users/${userId}`))
+  return await wrap(response.json())
+}, 'fetchUser').extend(withAsync())
+
+// Access async state
+fetchUser.error()  // → latest error if any
+fetchUser.ready()  // → are all operations complete?
+fetchUser.pending() // → number of pending operations
+```
+
+### Error Handling
+
+```typescript
+const fetch = action(async (shouldFail: boolean) => {
+  await wrap(sleep())
+  if (shouldFail) throw new Error('Failed!')
+  return 'Success'
+}, 'fetch').extend(withAsync())
+
+fetch.onReject.extend(
+  withCallHook(({ error, params }) => {
+    console.log('Request failed:', error.message)
+  })
+)
+
+fetch.onFulfill.extend(
+  withCallHook(({ payload, params }) => {
+    console.log('Request succeeded:', payload)
+  })
+)
+
+await wrap(fetch(true).catch(() => {}))
+console.log(fetch.error()) // → Error: Failed!
+
+await wrap(fetch(false))
+console.log(fetch.error()) // → undefined
+```
+
+### Retry with Computed
+
+```typescript
+import { atom, computed } from '@reatom/core'
+import { withAsync } from '@reatom/core/async'
+
+let shouldFail = true
+const params = atom(0, 'params')
+
+const resource = computed(async () => {
+  const value = params()
+  if (shouldFail) throw new Error('Initial failure')
+  return 'Success'
+}, 'resource').extend(withAsync())
+
+// Initial evaluation fails
+await wrap(resource().catch(() => {}))
+console.log(resource.error()) // → Error: Initial failure
+
+// Retry after fixing the condition
+shouldFail = false
+await wrap(resource.retry())
+console.log(resource.error()) // → undefined
+```
+
+### Retry with Action (Cached Params)
+
+```typescript
+const fetch = action(async (param: number) => {
+  await wrap(sleep())
+  return param * 2
+}, 'fetch').extend(withAsync({ cacheParams: true }))
+
+// First call
+await wrap(fetch(5))
+console.log(fetch.params()) // → [5]
+
+// Retry uses cached params
+await wrap(fetch.retry())
+console.log(fetch.params()) // → [5]
+```
+
+### Custom Error Parsing
+
+```typescript
+interface ApiError {
+  code: string
+  message: string
+}
+
+const fetchData = action(async () => {
+  const res = await wrap(fetch('/api/data'))
+  if (!res.ok) throw await res.json()
+  return res.json()
+}, 'fetchData').extend(
+  withAsync<ApiError>({
+    parseError: (error: unknown) => {
+      if (typeof error === 'object' && error !== null) {
+        return error as ApiError
+      }
+      return { code: 'UNKNOWN', message: String(error) }
+    },
+  })
+)
+
+await wrap(fetchData().catch(() => {}))
+const error = fetchData.error()
+if (error) {
+  console.log(`Error ${error.code}: ${error.message}`)
+}
+```
+
+### With Status Tracking
+
+```typescript
+const fetchUser = action(async (id: string) => {
+  const res = await wrap(fetch(`/api/users/${id}`))
+  return await wrap(res.json())
+}, 'fetchUser').extend(withAsync({ status: true }))
+
+const status = fetchUser.status()
+console.log(status.isPending)      // → false
+console.log(status.isFirstPending) // → false
+
+fetchUser('123')
+console.log(fetchUser.status().isPending)      // → true
+console.log(fetchUser.status().isFirstPending) // → true
+
+await wrap(promise)
+console.log(fetchUser.status().isFulfilled) // → true
+console.log(fetchUser.status().isSettled)   // → true
+```
+
+## Related
+
+- [withAsyncData](/api/async/with-async-data) - Extends withAsync with data storage
+- [withAsyncStatus](/api/async/with-async-status) - Detailed async status tracking
+- [withAbort](/api/extensions/with-abort) - Add abort handling to async operations

@@ -1,0 +1,293 @@
+---
+title: 'effect()'
+description: 'Creates a reactive side effect that automatically tracks dependencies and cleans itself up'
+---
+
+## Overview
+
+The `effect()` function creates a reactive side effect that automatically tracks dependencies and handles cleanup. It's similar to `computed()` but designed specifically for running side effects. Effects automatically subscribe to any atoms read within the callback and cancel ongoing async operations when dependencies change or the effect is stopped.
+
+## Import
+
+```typescript
+import { effect } from '@reatom/core'
+```
+
+## Signature
+
+```typescript
+function effect<T>(
+  cb: () => T,
+  name?: string
+): Effect<T>
+```
+
+## Parameters
+
+<ParamField path="cb" type="() => T" required>
+  The function to run as a side effect. It can be synchronous or asynchronous. Any atoms read inside this function will become dependencies, and the effect will re-run when they change.
+</ParamField>
+
+<ParamField path="name" type="string" optional>
+  Optional name for the effect. Useful for debugging and dev tools. If not provided, an auto-generated name will be used.
+</ParamField>
+
+## Returns
+
+<ResponseField name="effect" type="Effect<T>">
+  An effect instance with the following interface:
+  
+  <Expandable title="Effect Interface">
+    <ResponseField name="()" type="() => T">
+      Call the effect as a function to read its current state.
+    </ResponseField>
+    
+    <ResponseField name="unsubscribe" type="() => void">
+      Manually stop the effect and clean up. This is usually not necessary when `effect` is used within managed contexts like `reatomFactoryComponent` or `withConnectHook`, as cleanup happens automatically.
+    </ResponseField>
+    
+    <ResponseField name="subscribe" type="(cb?: (state: T) => any) => Unsubscribe">
+      The underlying subscribe method inherited from computed atoms.
+    </ResponseField>
+    
+    <ResponseField name="extend" type="Extend<this>">
+      Apply extensions to add functionality to the effect.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Effect
+
+```typescript
+import { atom, effect } from '@reatom/core'
+
+const count = atom(0, 'count')
+
+// Effect runs immediately and whenever count changes
+effect(() => {
+  console.log('Count is:', count())
+}, 'logCount')
+// Logs immediately: "Count is: 0"
+
+count.set(1)
+// Logs: "Count is: 1"
+
+count.set(5)
+// Logs: "Count is: 5"
+```
+
+### Async Effects with Polling
+
+```typescript
+import { atom, effect, wrap, sleep } from '@reatom/core'
+
+const isActive = atom(true, 'isActive')
+const data = atom(0, 'data')
+
+// This effect polls data every 5 seconds while isActive is true
+effect(async () => {
+  if (!isActive()) return // Depends on isActive
+
+  console.log('Polling started...')
+  while (true) {
+    const response = await wrap(fetch('/api/poll'))
+    const jsonData = await wrap(response.json())
+    data.set(jsonData.value)
+    await wrap(sleep(5000)) // Abortable sleep
+  }
+}, 'pollingEffect')
+
+// When isActive becomes false, the effect is cancelled
+isActive.set(false)
+```
+
+### Conditional Dependencies
+
+```typescript
+const resourceA = atom(1, 'resourceA')
+const resourceB = atom(2, 'resourceB')
+
+effect(() => {
+  const valueA = resourceA()
+  
+  // Only depends on resourceB when valueA is 2
+  if (valueA !== 2) return
+  
+  const valueB = resourceB()
+  console.log('Both conditions met:', valueA, valueB)
+}, 'conditionalEffect')
+
+resourceA.set(2)
+// Now the effect also tracks resourceB
+
+resourceB.set(10)
+// Logs: "Both conditions met: 2 10"
+```
+
+### Effect with Cleanup
+
+```typescript
+import { atom, effect, isAbort } from '@reatom/core'
+
+const userId = atom('user-1', 'userId')
+
+effect(async () => {
+  const id = userId()
+  console.log(`Fetching user ${id}...`)
+  
+  try {
+    const response = await wrap(fetch(`/api/users/${id}`))
+    const data = await wrap(response.json())
+    console.log(`Loaded user ${id}:`, data)
+  } catch (error) {
+    if (!isAbort(error)) {
+      console.error('Error fetching user:', error)
+    }
+    // isAbort errors are swallowed - they indicate cancellation
+  }
+}, 'fetchUserEffect')
+
+// Changing userId cancels the previous fetch
+userId.set('user-2')
+// Previous fetch is aborted, new fetch starts
+```
+
+### Manual Unsubscribe
+
+```typescript
+const counter = atom(0, 'counter')
+
+const myEffect = effect(() => {
+  console.log('Counter:', counter())
+}, 'myEffect')
+
+counter.set(1) // Logs: "Counter: 1"
+counter.set(2) // Logs: "Counter: 2"
+
+// Manually stop the effect
+myEffect.unsubscribe()
+
+counter.set(3) // Does not log - effect is stopped
+```
+
+### Effect in Component Context
+
+```typescript
+import { reatomComponent } from '@reatom/npm-react'
+import { atom, effect } from '@reatom/core'
+
+const title = atom('My App', 'title')
+
+const MyComponent = reatomComponent(({ ctx }) => {
+  // Effect automatically cleans up when component unmounts
+  effect(() => {
+    document.title = title()
+  }, 'updateDocumentTitle')
+  
+  return <div>Check the page title!</div>
+})
+```
+
+### Multiple Dependencies
+
+```typescript
+const firstName = atom('John', 'firstName')
+const lastName = atom('Doe', 'lastName')
+const greeting = atom('Hello', 'greeting')
+
+effect(() => {
+  const message = `${greeting()} ${firstName()} ${lastName()}!`
+  console.log(message)
+}, 'greetingEffect')
+// Logs: "Hello John Doe!"
+
+firstName.set('Jane')
+// Logs: "Hello Jane Doe!"
+
+greeting.set('Hi')
+// Logs: "Hi Jane Doe!"
+```
+
+### Error Handling in Effects
+
+```typescript
+import { atom, effect, isAbort } from '@reatom/core'
+
+const errorProne = atom(false, 'errorProne')
+
+effect(() => {
+  if (errorProne()) {
+    throw new Error('Something went wrong')
+  }
+  console.log('All good!')
+}, 'errorEffect')
+// Logs: "All good!"
+
+try {
+  errorProne.set(true)
+} catch (error) {
+  console.error('Effect error:', error.message)
+  // Logs: "Effect error: Something went wrong"
+}
+```
+
+### Effect with Suspense
+
+```typescript
+import { atom, effect, wrap, sleep } from '@reatom/core'
+import { withSuspenseInit } from '@reatom/core'
+
+const resource = atom(async () => {
+  await sleep(1000)
+  return 'loaded'
+}, 'resource').extend(withSuspenseInit())
+
+effect(() => {
+  const value = resource()
+  console.log('Resource value:', value)
+}, 'resourceEffect')
+// After 1 second, logs: "Resource value: loaded"
+```
+
+## Type Information
+
+### Effect Interface
+
+```typescript
+interface Effect<State> extends Computed<State> {
+  unsubscribe: Unsubscribe
+}
+```
+
+### Unsubscribe Type
+
+```typescript
+type Unsubscribe = () => void
+```
+
+## Key Characteristics
+
+- **Automatic Subscription**: Effects automatically subscribe on creation
+- **Dependency Tracking**: Atoms read within the effect become dependencies
+- **Auto-Cleanup**: When dependencies change, ongoing async operations are cancelled
+- **Abort Handling**: Uses `wrap()` with abort controllers to cancel async operations
+- **Error Safety**: Unhandled errors are thrown, but abort errors are silently ignored
+- **Context-Aware**: Effects are automatically cleaned up in managed contexts
+
+## Best Practices
+
+1. **Use `wrap()` for async operations**: Always wrap promises with `wrap()` to enable automatic cancellation
+2. **Handle abort errors**: Check for `isAbort(error)` in catch blocks to distinguish cancellation from real errors
+3. **Keep effects focused**: Each effect should handle one specific side effect
+4. **Conditional dependencies**: Use conditional logic to control which atoms are tracked
+5. **Manual cleanup**: Only call `unsubscribe()` when managing effects outside of component contexts
+
+## Related
+
+- [computed()](/api/core/computed) - Create derived state (effects are built on computed)
+- [atom()](/api/core/atom) - Create state that effects can depend on
+- [action()](/api/core/action) - Create logic containers
+- [wrap()](/api/methods/wrap) - Wrap promises for automatic cancellation
+- [withAbort()](/api/extensions/with-abort) - Extension used internally by effects

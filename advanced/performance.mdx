@@ -1,0 +1,431 @@
+---
+title: Performance Optimization
+description: Learn how to optimize your Reatom applications for maximum performance with memoization, atomization patterns, and lazy evaluation strategies.
+---
+
+Reatom is designed for exceptional performance in complex applications. The more sophisticated your app, the faster Reatom performs compared to alternatives. This guide covers performance optimization patterns and best practices.
+
+## Why Reatom is Fast
+
+Reatom achieves excellent performance through several key design decisions:
+
+- **Explicit reactivity without proxies** - Direct atom function calls are faster than proxy access
+- **Lazy evaluation** - Computed atoms only recalculate when subscribed and dependencies change
+- **Atomization patterns** - Fine-grained control over what triggers updates
+- **Immutable data structures** - Efficient change detection with reference equality
+- **Controlled reactive creation** - You define exactly what should be reactive
+
+<Note>
+  Check out this [benchmark](https://github.com/artalar/reactive-computed-bench) comparing Reatom to other state managers in complex computation scenarios. Reatom outperforms MobX for mid-range numbers while handling more features.
+</Note>
+
+## Atomization Pattern
+
+Atomization is the practice of splitting state into granular atoms to minimize unnecessary updates and computations.
+
+### Bad: Single Large Object
+
+```ts
+import { atom } from '@reatom/core'
+
+// Anti-pattern: Updating any property triggers all subscribers
+const user = atom({
+  profile: { name: '', email: '' },
+  settings: { theme: 'dark', notifications: true },
+  stats: { posts: 0, followers: 0 }
+}, 'user')
+
+// Changing theme re-renders components reading profile!
+user.set((state) => ({
+  ...state,
+  settings: { ...state.settings, theme: 'light' }
+}))
+```
+
+### Good: Atomized Structure
+
+```ts
+import { atom } from '@reatom/core'
+
+// Better: Each concern gets its own atom
+const userProfile = atom(
+  { name: '', email: '' },
+  'user.profile'
+)
+
+const userSettings = atom(
+  { theme: 'dark', notifications: true },
+  'user.settings'
+)
+
+const userStats = atom(
+  { posts: 0, followers: 0 },
+  'user.stats'
+)
+
+// Now theme changes only affect components reading userSettings
+userSettings.set((s) => ({ ...s, theme: 'light' }))
+```
+
+<Tip>
+  For large lists with editable items, atomize each item. This ensures editing one item doesn't trigger re-renders of all items.
+</Tip>
+
+### List Atomization Example
+
+```ts
+import { atom, computed } from '@reatom/core'
+import { reatomMap } from '@reatom/core'
+
+// Atomize list items for optimal performance
+const todosMap = reatomMap<string, { text: string; done: boolean }>([], 'todos')
+
+const todosList = computed(
+  () => Array.from(todosMap.entries()),
+  'todosList'
+)
+
+// Updating one todo only affects that specific item's subscribers
+todosMap.set('todo-1', { text: 'Buy milk', done: true })
+```
+
+## Memoization with `memo`
+
+Use `memo` inside computed atoms or actions to avoid expensive recomputations when only part of the dependencies change.
+
+```ts
+import { computed, memo, atom } from '@reatom/core'
+
+type Item = { id: string; value: number; metadata: object }
+
+const items = atom<Item[]>([], 'items')
+
+const stats = computed(() => {
+  const list = items()
+  
+  // Only recompute length when array length changes
+  const count = memo(() => list.length)
+  
+  // Only recompute sum when values change
+  const total = memo(() => 
+    list.reduce((sum, item) => sum + item.value, 0)
+  )
+  
+  return `${count} items totaling ${total}`
+}, 'stats')
+```
+
+<Warning>
+  **Important**: `memo` uses only the first callback provided. Don't rely on closure variables that change between calls. Use stable functions or provide a custom key parameter.
+</Warning>
+
+### Advanced memo with Custom Keys
+
+```ts
+import { computed, memo } from '@reatom/core'
+
+const dashboard = computed(() => {
+  // Use custom keys when callback bodies are similar
+  const dailyTotal = memo(
+    () => calculateTotal('daily'),
+    Object.is,
+    'dailyTotal' // Custom key
+  )
+  
+  const monthlyTotal = memo(
+    () => calculateTotal('monthly'),
+    Object.is,
+    'monthlyTotal' // Custom key
+  )
+  
+  return { dailyTotal, monthlyTotal }
+}, 'dashboard')
+```
+
+## Using `memoKey` for Services
+
+Create expensive objects once and reuse them across atom executions with `memoKey`.
+
+```ts
+import { computed, memoKey } from '@reatom/core'
+
+class ApiClient {
+  constructor(public baseUrl: string) {}
+  // ... methods
+}
+
+const apiData = computed(async () => {
+  // Client created once, reused for all calls
+  const client = memoKey('apiClient', () => 
+    new ApiClient('/api')
+  )
+  
+  return await client.fetch('/data')
+}, 'apiData')
+```
+
+## Lazy Computed Atoms
+
+Computed atoms are lazy by default - they only run when:
+
+1. They have at least one subscriber
+2. Their dependencies have changed
+
+```ts
+import { atom, computed } from '@reatom/core'
+
+const counter = atom(0, 'counter')
+
+// This won't run until someone subscribes or reads it
+const expensive = computed(() => {
+  console.log('Computing...')
+  return counter() * 2
+}, 'expensive')
+
+// No console.log yet
+counter.set(5)
+
+// Still no console.log
+
+// NOW it computes (first time)
+const value = expensive()
+
+// Subscribe to make it reactive
+expensive.subscribe((v) => console.log('New value:', v))
+
+// NOW it recomputes automatically when counter changes
+counter.set(10)
+```
+
+<Tip>
+  Use computed atoms with `withAsyncData` for data fetching. They automatically activate when subscribed (e.g., when a component mounts) and deactivate when unsubscribed.
+</Tip>
+
+## Optimizing Re-renders in Components
+
+### Use `reatomComponent` for Automatic Optimization
+
+```tsx
+import { reatomComponent } from '@reatom/react'
+import { userProfile, userSettings } from './model'
+
+// Only re-renders when userProfile changes
+const Profile = reatomComponent(() => {
+  const profile = userProfile()
+  
+  return <div>{profile.name}</div>
+})
+
+// Only re-renders when userSettings changes
+const Settings = reatomComponent(() => {
+  const settings = userSettings()
+  
+  return <div>Theme: {settings.theme}</div>
+})
+```
+
+### Read Only What You Need
+
+```tsx
+import { computed } from '@reatom/core'
+import { reatomComponent } from '@reatom/react'
+
+// Bad: Reading entire object causes updates on any property change
+const BadComponent = reatomComponent(() => {
+  const user = userProfile()
+  return <div>{user.name}</div> // Re-renders when email changes too!
+})
+
+// Good: Extract only what you need
+const userName = computed(() => userProfile().name, 'userName')
+
+const GoodComponent = reatomComponent(() => {
+  const name = userName()
+  return <div>{name}</div> // Only re-renders when name changes
+})
+```
+
+## Abort Strategies for Performance
+
+Use `withAbort` to cancel outdated requests and prevent unnecessary work.
+
+```ts
+import { action, withAbort, wrap } from '@reatom/core'
+
+// Last-in-win: Cancel previous requests when new one starts
+const searchUsers = action(async (query: string) => {
+  const response = await wrap(fetch(`/api/users?q=${query}`))
+  return response.json()
+}, 'searchUsers').extend(withAbort())
+
+// User types "abc" quickly:
+searchUsers('a') // Cancelled
+searchUsers('ab') // Cancelled  
+searchUsers('abc') // This one completes
+```
+
+<Note>
+  The `withAbort` extension prevents race conditions and saves resources by aborting unnecessary async operations.
+</Note>
+
+### First-in-win Strategy
+
+```ts
+import { action, withAbort, wrap } from '@reatom/core'
+
+// Prevent duplicate requests while one is in flight
+const loadConfig = action(async () => {
+  const response = await wrap(fetch('/api/config'))
+  return response.json()
+}, 'loadConfig').extend(withAbort('first-in-win'))
+
+loadConfig() // Runs
+loadConfig() // Ignored, returns the first promise
+loadConfig() // Ignored, returns the first promise
+```
+
+## Selective Equality with `withMemo`
+
+Prevent updates when new state is equivalent to old state.
+
+```ts
+import { atom, withMemo } from '@reatom/core'
+import { isShallowEqual } from '@reatom/core'
+
+// Only trigger updates when array contents actually change
+const tags = atom<string[]>([], 'tags').extend(
+  withMemo(isShallowEqual)
+)
+
+// No update triggered if arrays are shallow-equal
+tags.set(['react', 'reatom'])
+tags.set(['react', 'reatom']) // No subscribers notified
+```
+
+## Performance Monitoring
+
+### Use `connectLogger` for Insights
+
+```ts
+import { connectLogger } from '@reatom/core'
+
+// Enable logging in development
+if (import.meta.env.DEV) {
+  connectLogger({
+    match: /^(?!_)/, // Skip private atoms
+  })
+}
+```
+
+The logger shows:
+- Which atoms are updating
+- Dependency chains causing updates
+- Timing information for async operations
+
+### DevTools Integration
+
+Reatom DevTools provides visual inspection of your state graph and update patterns. See the [DevTools guide](/advanced/devtools) for setup instructions.
+
+## Best Practices Summary
+
+<Steps>
+  <Step title="Atomize your state">
+    Split large objects into granular atoms for fine-grained reactivity.
+  </Step>
+  
+  <Step title="Use memo for expensive computations">
+    Wrap expensive operations in `memo()` inside computed atoms to avoid unnecessary recalculations.
+  </Step>
+  
+  <Step title="Leverage lazy evaluation">
+    Use `computed` + `withAsyncData` for data fetching - they only run when subscribed.
+  </Step>
+  
+  <Step title="Apply abort strategies">
+    Use `withAbort()` on async operations to cancel outdated work.
+  </Step>
+  
+  <Step title="Read selectively">
+    Extract specific properties into dedicated computed atoms instead of reading entire objects.
+  </Step>
+  
+  <Step title="Monitor in development">
+    Use `connectLogger` and DevTools to identify performance bottlenecks.
+  </Step>
+</Steps>
+
+<Warning>
+  Avoid premature optimization. Profile your application first, then apply these patterns where they provide measurable benefits.
+</Warning>
+
+## Common Performance Anti-Patterns
+
+### Creating Atoms in Render
+
+```tsx
+// ❌ BAD: Creates new atom on every render
+const Component = () => {
+  const counter = atom(0) // Don't do this!
+  return <div>{counter()}</div>
+}
+
+// ✅ GOOD: Define atoms outside components
+const counter = atom(0, 'counter')
+
+const Component = reatomComponent(() => {
+  return <div>{counter()}</div>
+})
+```
+
+### Not Using withAsyncData for Fetching
+
+```ts
+// ❌ BAD: Manual fetch in action with separate loading state
+const data = atom([], 'data')
+const isLoading = atom(false, 'isLoading')
+
+const fetchData = action(async () => {
+  isLoading.set(true)
+  try {
+    const result = await fetch('/api/data')
+    data.set(await result.json())
+  } finally {
+    isLoading.set(false)
+  }
+})
+
+// ✅ GOOD: Use computed + withAsyncData
+const data = computed(async () => {
+  const response = await wrap(fetch('/api/data'))
+  return response.json()
+}, 'data').extend(withAsyncData({ initState: [] }))
+
+// Access via data.data(), data.ready(), data.error()
+```
+
+### Over-subscribing
+
+```tsx
+// ❌ BAD: Subscribing to parent when you only need one property
+const UserCard = reatomComponent(() => {
+  const user = userProfile() // { name, email, avatar, bio, ... }
+  return <div>{user.name}</div> // Re-renders on ANY user change
+})
+
+// ✅ GOOD: Create selector for specific property
+const userName = computed(
+  () => userProfile().name,
+  'userName'
+)
+
+const UserCard = reatomComponent(() => {
+  const name = userName()
+  return <div>{name}</div> // Only re-renders when name changes
+})
+```
+
+## Further Reading
+
+- [Atomization Recipes](https://www.reatom.dev/recipes/atomization) - More atomization patterns
+- [Benchmark Results](https://github.com/artalar/reactive-computed-bench) - Performance comparisons
+- [DevTools Guide](/advanced/devtools) - Visual performance monitoring

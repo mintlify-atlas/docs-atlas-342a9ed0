@@ -1,0 +1,280 @@
+---
+title: reatomMap
+description: A primitive atom for managing Map state with reactive updates and convenient mutation methods
+---
+
+## Overview
+
+`reatomMap` creates an atom that manages `Map` state with built-in methods for common map operations like `set`, `delete`, and `clear`. It also provides a reactive `size` computed property and utilities like `getOrCreate`.
+
+## Import
+
+```typescript
+import { reatomMap } from '@reatom/core'
+```
+
+## Type Signature
+
+```typescript
+type StateInit<Key, Value> =
+  | Map<Key, Value>
+  | ConstructorParameters<typeof Map<Key, Value>>[0]
+
+interface MapAtom<Key, Value> extends AtomLike<Map<Key, Value>, []> {
+  setState(
+    update: (state: Map<Key, Value>) => StateInit<Key, Value>
+  ): Map<Key, Value>
+  setState(newState: StateInit<Key, Value>): Map<Key, Value>
+
+  getOrCreate: (key: Key, creator: () => Value) => Value
+
+  set: Action<[key: Key, value: Value], Map<Key, Value>>
+  delete: Action<[key: Key], Map<Key, Value>>
+  clear: Action<[], Map<Key, Value>>
+  reset: Action<[], Map<Key, Value>>
+
+  size: Computed<number>
+}
+
+function reatomMap<Key, Value>(
+  initState?: StateInit<Key, Value>,
+  name?: string
+): MapAtom<Key, Value>
+```
+
+## Parameters
+
+<ParamField path="initState" type="StateInit<Key, Value>" default="new Map()">
+  The initial Map value. Can be a Map instance or an array of key-value pairs
+</ParamField>
+
+<ParamField path="name" type="string" default="'mapAtom'">
+  Optional name for the atom, useful for debugging
+</ParamField>
+
+## Properties
+
+### size
+
+A computed atom that reactively tracks the size of the map.
+
+**Type:** `Computed<number>`
+
+```typescript
+const mapAtom = reatomMap(new Map([['a', 1], ['b', 2]]))
+console.log(mapAtom.size()) // 2
+
+mapAtom.set('c', 3)
+console.log(mapAtom.size()) // 3
+```
+
+## Methods
+
+### setState
+
+Updates the entire map state. Can accept a new state directly or a function that receives the current state.
+
+<ParamField path="newState" type="StateInit<Key, Value> | ((state: Map<Key, Value>) => StateInit<Key, Value>)">
+  New state value or update function
+</ParamField>
+
+**Returns:** `Map<Key, Value>` - The new state
+
+```typescript
+const mapAtom = reatomMap(new Map([['a', 1]]))
+
+// Direct update
+mapAtom.setState([['x', 10], ['y', 20]])
+
+// Functional update
+mapAtom.setState((prev) => {
+  return [['key', 2]]
+})
+```
+
+### set
+
+Sets a key-value pair in the map. Only triggers an update if the value has changed.
+
+<ParamField path="key" type="Key">
+  The key to set
+</ParamField>
+
+<ParamField path="value" type="Value">
+  The value to associate with the key
+</ParamField>
+
+**Returns:** `Map<Key, Value>` - The updated map
+
+```typescript
+const mapAtom = reatomMap(new Map([['a', 1], ['b', 2], ['c', 3]]))
+
+mapAtom.set('d', 4)
+console.log(mapAtom().get('d')) // 4
+```
+
+### delete
+
+Removes a key from the map.
+
+<ParamField path="key" type="Key">
+  The key to delete
+</ParamField>
+
+**Returns:** `Map<Key, Value>` - The updated map
+
+```typescript
+const mapAtom = reatomMap(new Map([['a', 1], ['b', 2]]))
+
+mapAtom.delete('a')
+console.log(mapAtom().has('a')) // false
+```
+
+### clear
+
+Removes all entries from the map.
+
+**Returns:** `Map<Key, Value>` - The cleared map
+
+```typescript
+const mapAtom = reatomMap(new Map([['a', 1], ['b', 2]]))
+
+mapAtom.clear()
+console.log(mapAtom.size()) // 0
+```
+
+### reset
+
+Resets the map to its initial state.
+
+**Returns:** `Map<Key, Value>` - The reset map
+
+```typescript
+const mapAtom = reatomMap(new Map([['a', 1], ['b', 2]]))
+
+mapAtom.set('c', 3)
+mapAtom.reset()
+console.log(mapAtom.size()) // 2 (back to initial state)
+```
+
+### getOrCreate
+
+Gets a value by key, or creates it if it doesn't exist using the provided creator function.
+
+<ParamField path="key" type="Key">
+  The key to look up
+</ParamField>
+
+<ParamField path="creator" type="() => Value">
+  Function to create the value if the key doesn't exist
+</ParamField>
+
+**Returns:** `Value` - The existing or newly created value
+
+```typescript
+const cacheAtom = reatomMap<string, number>()
+
+const value1 = cacheAtom.getOrCreate('key1', () => 100)
+console.log(value1) // 100
+
+const value2 = cacheAtom.getOrCreate('key1', () => 200)
+console.log(value2) // 100 (uses existing value)
+```
+
+## Basic Usage
+
+```typescript
+import { reatomMap } from '@reatom/core'
+
+// Create with initial entries
+const userPrefsAtom = reatomMap(
+  new Map([
+    ['theme', 'dark'],
+    ['language', 'en']
+  ])
+)
+
+// Read values
+console.log(userPrefsAtom().get('theme')) // 'dark'
+
+// Set values
+userPrefsAtom.set('theme', 'light')
+
+// Check size reactively
+console.log(userPrefsAtom.size()) // 2
+
+// Delete entries
+userPrefsAtom.delete('language')
+console.log(userPrefsAtom.size()) // 1
+```
+
+## Advanced Usage
+
+### Using Array Syntax for Initialization
+
+```typescript
+// You can initialize with an array of entries
+const mapAtom = reatomMap([['a', 1], ['b', 2], ['c', 3]])
+console.log(mapAtom.size()) // 3
+
+// Or start empty
+const emptyMap = reatomMap<string, number>()
+console.log(emptyMap.size()) // 0
+```
+
+### Cache with getOrCreate
+
+```typescript
+const expensiveComputations = reatomMap<string, number>()
+
+function compute(id: string): number {
+  return expensiveComputations.getOrCreate(id, () => {
+    // This only runs if the key doesn't exist
+    console.log(`Computing for ${id}...`)
+    return Math.random()
+  })
+}
+
+compute('key1') // Logs: "Computing for key1..."
+compute('key1') // No log, uses cached value
+```
+
+### Type-Safe Maps
+
+```typescript
+interface User {
+  id: string
+  name: string
+}
+
+const usersById = reatomMap<string, User>()
+
+usersById.set('123', {
+  id: '123',
+  name: 'Alice'
+})
+
+const user = usersById().get('123')
+```
+
+### Reactive Size Tracking
+
+```typescript
+import { computed } from '@reatom/core'
+
+const mapAtom = reatomMap()
+
+const isEmpty = computed(() => mapAtom.size() === 0)
+
+console.log(isEmpty()) // true
+mapAtom.set('key', 'value')
+console.log(isEmpty()) // false
+```
+
+## Notes
+
+- All mutations create new Map instances, preserving immutability
+- The `set` method uses `Object.is()` to compare values and avoid unnecessary updates
+- `setState` accepts both Map instances and arrays of entries for flexibility
+- The `size` property is a computed atom that automatically updates when the map changes
+- Direct mutations like `mapAtom().set('key', 'value')` will not trigger updates; use the provided methods instead

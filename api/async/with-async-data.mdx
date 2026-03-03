@@ -1,0 +1,368 @@
+---
+title: withAsyncData
+description: Extension that adds async data management to atoms or actions that return promises
+---
+
+## Overview
+
+The `withAsyncData` extension creates a properly typed data atom that stores the results of successful async operations. It includes all features of `withAsync` and `withAbort` for complete async handling.
+
+This extension is perfect for managing data fetching patterns where you need to:
+- Store fetched data in an atom
+- Track loading states
+- Handle errors
+- Abort outdated requests
+
+## Type Signature
+
+```typescript
+// Basic usage - data type inferred from payload
+function withAsyncData<Err = Error, EmptyErr = undefined>(
+  options?: AsyncOptions<Err, EmptyErr>
+): <T extends AtomLike>(
+  target: T
+) => T extends AtomLike<any, infer Params, Promise<infer Payload>>
+  ? AsyncDataExt<Params, Payload, Payload, undefined, Err | EmptyErr>
+  : never
+
+// With initial state matching payload type
+function withAsyncData<T extends AtomLike, Err = Error, EmptyErr = undefined>(
+  options: AsyncOptions<Err, EmptyErr> & {
+    initState: Payload
+    mapPayload?: (payload: Payload, params: Params, state: Payload) => Payload
+  }
+): (target: T) => AsyncDataExt<Params, Payload, Payload, Payload, Err | EmptyErr>
+
+// With custom state type and mapper
+function withAsyncData<State, T extends AtomLike, Err = Error, EmptyErr = undefined>(
+  options: AsyncOptions<Err, EmptyErr> & {
+    initState: State
+    mapPayload: (payload: Payload, params: Params, state: State) => State
+  }
+): (target: T) => AsyncDataExt<Params, Payload, State, State, Err | EmptyErr>
+```
+
+## Parameters
+
+<ParamField path="options" type="AsyncDataOptions" optional>
+  Configuration options extending `AsyncOptions`
+  
+  <Expandable title="properties">
+    <ParamField path="initState" type="State" optional>
+      Initial value for the data atom
+    </ParamField>
+    
+    <ParamField path="mapPayload" type="(payload, params, state) => State" optional>
+      Function to transform the successful payload into the data state
+      
+      **Parameters:**
+      - `payload`: The resolved value from the promise
+      - `params`: The original parameters passed to the atom/action
+      - `state`: The current state of the data atom
+      
+      **Returns:** The new state for the data atom
+    </ParamField>
+    
+    <ParamField path="parseError" type="(error: unknown) => Err" optional>
+      Function to transform raw errors (inherited from AsyncOptions)
+    </ParamField>
+    
+    <ParamField path="emptyError" type="EmptyErr" optional>
+      Initial/reset value for the error atom (inherited from AsyncOptions)
+    </ParamField>
+    
+    <ParamField path="resetError" type="null | 'onCall' | 'onFulfill'" optional>
+      When to reset the error state (inherited from AsyncOptions)
+    </ParamField>
+    
+    <ParamField path="status" type="boolean" optional>
+      Enable detailed status tracking (inherited from AsyncOptions)
+    </ParamField>
+    
+    <ParamField path="cacheParams" type="boolean" optional>
+      Enable parameter caching for retry (inherited from AsyncOptions)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Value
+
+Returns the target extended with all `AsyncExt` properties plus:
+
+<ResponseField name="data" type="Atom<InitState | State>">
+  Atom that stores the fetched data. Updated automatically when async operations complete successfully.
+  
+  Includes a `reset` action to reset data to initial state.
+</ResponseField>
+
+<ResponseField name="abort" type="Action<[reason?: any]>">
+  Action to abort ongoing async operations (from `withAbort`)
+</ResponseField>
+
+<ResponseField name="reset" type="Action<[], void>">
+  Action that resets dependencies and data to initial state. Does not automatically re-fetch.
+</ResponseField>
+
+<ResponseField name="status" type="AsyncStatusAtom<State, InitState>">
+  Status atom that includes the `data` property (when `status: true`)
+</ResponseField>
+
+## Examples
+
+### Basic Data Fetching with Computed
+
+```typescript
+import { atom, computed } from '@reatom/core'
+import { withAsyncData } from '@reatom/core/async'
+import { wrap } from '@reatom/core/methods'
+
+const userId = atom('1', 'userId')
+
+const userData = computed(async () => {
+  const id = userId()
+  const response = await wrap(fetch(`/api/users/${id}`))
+  if (!response.ok) throw new Error('Failed to fetch user')
+  return await wrap(response.json())
+}, 'userData').extend(withAsyncData())
+
+// Access the fetched data
+userData.data()   // → the user data or undefined
+userData.error()  // → error if fetch failed
+userData.ready()  // → false while loading, true when complete
+```
+
+### With Initial State
+
+```typescript
+interface Todo {
+  id: number
+  title: string
+  completed: boolean
+}
+
+const todoId = atom(1, 'todoId')
+
+const todoData = computed(async () => {
+  const id = todoId()
+  const res = await wrap(fetch(`/api/todos/${id}`))
+  return await wrap(res.json()) as Todo
+}, 'todoData').extend(
+  withAsyncData({
+    initState: { id: 0, title: '', completed: false },
+  })
+)
+
+// Data is never undefined
+todoData.data() // → { id: 0, title: '', completed: false } initially
+```
+
+### Accumulating Data with mapPayload
+
+```typescript
+const fetchPage = action(async (page: number) => {
+  const res = await wrap(fetch(`/api/items?page=${page}`))
+  return await wrap(res.json())
+}, 'fetchPage').extend(
+  withAsyncData({
+    initState: [] as Item[],
+    mapPayload: (newItems, [page], currentItems) => {
+      // Append new items to existing ones
+      return [...currentItems, ...newItems]
+    },
+  })
+)
+
+// Load multiple pages
+await wrap(fetchPage(1))
+await wrap(fetchPage(2))
+await wrap(fetchPage(3))
+
+// All items accumulated
+fetchPage.data() // → [...page1Items, ...page2Items, ...page3Items]
+```
+
+### Error Handling with Custom Type
+
+```typescript
+interface ApiError {
+  code: string
+  message: string
+}
+
+const resource = computed(async () => {
+  const res = await wrap(fetch('/api/resource'))
+  if (!res.ok) {
+    throw await res.json() // API returns { code, message }
+  }
+  return await wrap(res.json())
+}, 'resource').extend(
+  withAsyncData<ApiError>({
+    parseError: (error) => {
+      if (typeof error === 'object' && error !== null) {
+        return error as ApiError
+      }
+      return { code: 'UNKNOWN', message: String(error) }
+    },
+    initState: null,
+  })
+)
+
+const error = resource.error()
+if (error) {
+  console.log(`Error ${error.code}: ${error.message}`)
+}
+```
+
+### Concurrent Request Handling
+
+```typescript
+const fetchItem = action(async (id: number) => {
+  await wrap(sleep())
+  return { id, data: `Item ${id}` }
+}, 'fetchItem').extend(withAsyncData({ initState: null }))
+
+// Start multiple concurrent requests
+fetchItem(1)
+fetchItem(2)
+fetchItem(3)
+
+await wrap(sleep())
+
+// Only the last request updates the data (last-in-win)
+fetchItem.data() // → { id: 3, data: 'Item 3' }
+```
+
+### Reset and Re-fetch Pattern
+
+```typescript
+const param = atom(1, 'param')
+
+const resource = computed(async () => {
+  const value = param()
+  await wrap(sleep())
+  return value * 10
+}, 'resource').extend(withAsyncData({ initState: 0 }))
+
+resource.data.subscribe()
+await wrap(sleep())
+console.log(resource.data()) // → 10
+
+// Reset clears data but doesn't re-fetch
+resource.reset()
+console.log(resource.data()) // → 0
+
+// Manually trigger re-fetch
+await wrap(resource())
+console.log(resource.data()) // → 10
+```
+
+### Retry After Error
+
+```typescript
+let shouldFail = true
+
+const resource = computed(async () => {
+  await wrap(sleep())
+  if (shouldFail) throw new Error('Test error')
+  return 'Success'
+}, 'resource').extend(withAsyncData())
+
+resource()
+await wrap(sleep())
+
+console.log(resource.error())        // → Error: Test error
+console.log(resource.data())         // → undefined
+
+// Fix the condition and retry
+shouldFail = false
+await wrap(resource.retry())
+
+console.log(resource.error())        // → undefined
+console.log(resource.data())         // → 'Success'
+```
+
+### With Status Including Data
+
+```typescript
+const fetch = action(
+  async (param: number) => param + 1,
+  'fetch'
+).extend(withAsyncData({ status: true }))
+
+const status = fetch.status()
+console.log(status.data)         // → undefined
+console.log(status.isPending)    // → false
+
+const promise = fetch(5)
+const pendingStatus = fetch.status()
+console.log(pendingStatus.data)        // → undefined
+console.log(pendingStatus.isPending)   // → true
+
+await wrap(promise)
+const fulfilledStatus = fetch.status()
+console.log(fulfilledStatus.data)       // → 6
+console.log(fulfilledStatus.isFulfilled) // → true
+```
+
+## Use Cases
+
+### User Profile Management
+
+```typescript
+const currentUserId = atom<string | null>(null, 'currentUserId')
+
+const userProfile = computed(async () => {
+  const userId = currentUserId()
+  if (!userId) return null
+  
+  const res = await wrap(fetch(`/api/users/${userId}`))
+  return await wrap(res.json())
+}, 'userProfile').extend(
+  withAsyncData({ initState: null })
+)
+
+// Load user
+currentUserId.set('user-123')
+
+// Show loading state
+if (!userProfile.ready()) {
+  console.log('Loading...')
+}
+
+// Show data
+const profile = userProfile.data()
+if (profile) {
+  console.log(`Welcome, ${profile.name}!`)
+}
+```
+
+### Pagination with History
+
+```typescript
+const currentPage = atom(1, 'currentPage')
+const pageSize = atom(20, 'pageSize')
+
+const items = computed(async () => {
+  const page = currentPage()
+  const size = pageSize()
+  const res = await wrap(fetch(`/api/items?page=${page}&size=${size}`))
+  return await wrap(res.json())
+}, 'items').extend(
+  withAsyncData({
+    initState: [] as Item[],
+  })
+)
+
+// Load first page
+await wrap(items())
+
+// Navigate to next page - previous data is replaced
+currentPage.set(2)
+await wrap(items())
+```
+
+## Related
+
+- [withAsync](/api/async/with-async) - Base async state tracking
+- [withAsyncStatus](/api/async/with-async-status) - Detailed status tracking
+- [withAbort](/api/extensions/with-abort) - Abort handling

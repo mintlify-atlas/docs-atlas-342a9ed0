@@ -1,0 +1,304 @@
+---
+title: withSuspenseRetry
+description: Automatically retry async actions when they fail due to suspension
+---
+
+## Overview
+
+The `withSuspenseRetry` extension wraps an async action to automatically retry it when a Promise is thrown (suspension). It keeps retrying until the action completes successfully or throws a non-Promise error.
+
+This is particularly useful when working with atoms that use suspense patterns, where you want actions to wait for suspended data to resolve before continuing.
+
+## Type Signature
+
+```typescript
+function withSuspenseRetry<T extends Action<unknown[], Promise<unknown>>>(): Ext<T>
+```
+
+## Warning
+
+Be careful with non-idempotent operations inside the action body, as they may be executed multiple times during retries. Plan your execution logic carefully to handle potential retries safely.
+
+## Return Value
+
+Returns the same action with automatic suspension retry behavior.
+
+## Examples
+
+### Basic Retry
+
+```typescript
+import { action, atom } from '@reatom/core'
+import { withSuspenseRetry, withSuspenseInit } from '@reatom/core/extensions'
+import { wrap } from '@reatom/core/methods'
+
+const suspenseAtom = atom(async () => {
+  await wrap(sleep())
+  return 1
+}).extend(withSuspenseInit())
+
+const act = action(async () => {
+  const result = suspenseAtom() // Will throw promise first time
+  return result
+}).extend(withSuspenseRetry())
+
+const result = await wrap(act())
+console.log(result) // → 1 (retried automatically)
+```
+
+### Fetch User Books After User Loads
+
+```typescript
+const user = atom(async () => {
+  const res = await fetch('/api/user')
+  return res.json()
+}).extend(withSuspenseInit())
+
+const fetchUserBooks = action(async () => {
+  const userData = user() // Suspends until user is loaded
+  const response = await wrap(fetch(`/api/users/${userData.id}/books`))
+  return await wrap(response.json())
+}).extend(withSuspenseRetry())
+
+// Call immediately - will retry until user atom is ready
+const books = await wrap(fetchUserBooks())
+console.log(books)
+```
+
+### Chained Suspense Dependencies
+
+```typescript
+const config = atom(async () => {
+  await sleep(100)
+  return { apiUrl: 'https://api.example.com' }
+}).extend(withSuspenseInit())
+
+const auth = atom(async () => {
+  await sleep(50)
+  return { token: 'abc123' }
+}).extend(withSuspenseInit())
+
+const fetchData = action(async (endpoint: string) => {
+  const cfg = config() // Suspends until config loads
+  const authData = auth() // Suspends until auth loads
+  
+  const res = await wrap(fetch(`${cfg.apiUrl}${endpoint}`, {
+    headers: { Authorization: `Bearer ${authData.token}` },
+  }))
+  
+  return await wrap(res.json())
+}).extend(withSuspenseRetry())
+
+// Automatically waits for both config and auth
+const data = await wrap(fetchData('/users'))
+```
+
+### With Error Handling
+
+```typescript
+const resource = atom(async () => {
+  await sleep()
+  return { id: 1, name: 'Resource' }
+}).extend(withSuspenseInit())
+
+const processResource = action(async () => {
+  try {
+    const res = resource() // May suspend
+    
+    if (res.id < 0) {
+      throw new Error('Invalid resource')
+    }
+    
+    return `Processed: ${res.name}`
+  } catch (error) {
+    // Non-promise errors are not retried
+    if (!(error instanceof Promise)) {
+      console.error('Processing failed:', error)
+      throw error
+    }
+    throw error // Re-throw promise for retry
+  }
+}).extend(withSuspenseRetry())
+
+const result = await wrap(processResource())
+console.log(result) // → "Processed: Resource"
+```
+
+### Multiple Suspended Atoms
+
+```typescript
+const userAtom = atom(async () => {
+  await sleep(100)
+  return { id: 1, name: 'John' }
+}).extend(withSuspenseInit())
+
+const settingsAtom = atom(async () => {
+  await sleep(50)
+  return { theme: 'dark' }
+}).extend(withSuspenseInit())
+
+const initializeApp = action(async () => {
+  const user = userAtom() // Suspends
+  const settings = settingsAtom() // Suspends
+  
+  return {
+    user,
+    settings,
+    initialized: true,
+  }
+}).extend(withSuspenseRetry())
+
+// Retries until both atoms are ready
+const app = await wrap(initializeApp())
+console.log(app.initialized) // → true
+```
+
+## How It Works
+
+```typescript
+// Simplified implementation
+withSuspenseRetry = () =>
+  withActionMiddleware(() => async (next, ...params) => {
+    while (true) {
+      try {
+        return await wrap(next(...params))
+      } catch (error) {
+        if (error instanceof Promise) {
+          await wrap(error) // Wait for promise to resolve
+          // Then retry
+        } else {
+          throw error // Non-promise errors are thrown
+        }
+      }
+    }
+  })
+```
+
+## Use Cases
+
+### Dependent Data Loading
+
+```typescript
+const userId = atom(async () => {
+  // Load from URL or storage
+  return getUserIdFromAuth()
+}).extend(withSuspenseInit())
+
+const loadUserProfile = action(async () => {
+  const id = userId() // Suspends until user ID is available
+  const res = await wrap(fetch(`/api/users/${id}`))
+  return await wrap(res.json())
+}).extend(withSuspenseRetry())
+```
+
+### Sequential Async Operations
+
+```typescript
+const database = atom(async () => {
+  const db = await openDatabase()
+  return db
+}).extend(withSuspenseInit())
+
+const saveData = action(async (data: Data) => {
+  const db = database() // Suspends until DB is ready
+  await db.save(data)
+  return { success: true }
+}).extend(withSuspenseRetry())
+```
+
+### React Component Actions
+
+```tsx
+const config = atom(async () => {
+  const res = await fetch('/api/config')
+  return res.json()
+}).extend(withSuspenseInit())
+
+const submitForm = action(async (formData: FormData) => {
+  const cfg = config() // Suspends if config not loaded
+  
+  const res = await fetch(cfg.submitUrl, {
+    method: 'POST',
+    body: formData,
+  })
+  
+  return res.json()
+}).extend(withSuspenseRetry())
+
+function MyForm() {
+  const handleSubmit = useAction(submitForm)
+  
+  return (
+    <form onSubmit={e => {
+      e.preventDefault()
+      handleSubmit(new FormData(e.target))
+    }}>
+      {/* form fields */}
+    </form>
+  )
+}
+```
+
+## Important Considerations
+
+### Non-Idempotent Operations
+
+```typescript
+// ⚠️ BAD - Side effect runs multiple times
+const badAction = action(async () => {
+  incrementCounter() // Runs on every retry!
+  const data = suspendedAtom()
+  return data
+}).extend(withSuspenseRetry())
+
+// ✅ GOOD - Side effect runs after suspension resolved
+const goodAction = action(async () => {
+  const data = suspendedAtom() // May suspend
+  incrementCounter() // Only runs after suspension
+  return data
+}).extend(withSuspenseRetry())
+```
+
+### Error Recovery
+
+```typescript
+const retryableAction = action(async () => {
+  const resource = suspendedAtom()
+  
+  // Non-promise errors stop retrying
+  if (!resource.valid) {
+    throw new Error('Invalid resource')
+  }
+  
+  return processResource(resource)
+}).extend(withSuspenseRetry())
+```
+
+### Nested Suspense
+
+```typescript
+const outer = atom(async () => {
+  await sleep(100)
+  return 'outer'
+}).extend(withSuspenseInit())
+
+const inner = atom(async () => {
+  await sleep(50)
+  return 'inner'
+}).extend(withSuspenseInit())
+
+const process = action(async () => {
+  const o = outer() // First suspension point
+  const i = inner() // Second suspension point
+  return `${o}-${i}`
+}).extend(withSuspenseRetry())
+
+// Retries until both are ready
+await wrap(process()) // → "outer-inner"
+```
+
+## Related
+
+- [withSuspense](/api/extensions/with-suspense) - Add suspense support to atoms
+- [withSuspenseInit](/api/extensions/with-suspense#withsuspenseinit) - Async atom initialization
+- [suspense](/api/extensions/with-suspense#suspense-helper) - Helper for suspense values

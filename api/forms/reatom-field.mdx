@@ -1,0 +1,428 @@
+---
+title: 'reatomField'
+description: 'Create reactive form fields with built-in validation, focus tracking, and state management'
+---
+
+## Overview
+
+`reatomField` creates a reactive atom representing a form field with built-in support for:
+- Value change handling with filtering
+- Focus and blur tracking
+- Validation (sync and async)
+- Dirty state management
+- State/value transformations
+
+## Type Signature
+
+```typescript
+function reatomField<State, Value = State>(
+  initState: State,
+  options?: FieldOptions<State, Value>
+): FieldAtom<State, Value>
+```
+
+## Parameters
+
+<ParamField path="initState" type="State" required>
+  The initial value of the field
+</ParamField>
+
+<ParamField path="options" type="FieldOptions<State, Value> | string">
+  Field configuration options or debug name string
+
+  <Expandable title="properties">
+    <ParamField path="name" type="string">
+      Debug name for the field and related atoms
+    </ParamField>
+
+    <ParamField path="validate" type="ValidateOption | StandardSchemaV1">
+      Validation function or Standard Schema. Can be sync or async.
+      Receives `{ value, state, focus }` and should return error message or throw.
+    </ParamField>
+
+    <ParamField path="validateOnChange" type="boolean" default="false">
+      Trigger validation when field value changes
+    </ParamField>
+
+    <ParamField path="validateOnBlur" type="boolean" default="false">
+      Trigger validation when field loses focus
+    </ParamField>
+
+    <ParamField path="validateOnConnect" type="boolean" default="false">
+      Trigger validation when field is first subscribed to
+    </ParamField>
+
+    <ParamField path="keepErrorOnChange" type="boolean" default="true">
+      Keep validation error visible when value changes
+    </ParamField>
+
+    <ParamField path="keepErrorDuringValidating" type="boolean" default="false">
+      Keep previous error during async validation
+    </ParamField>
+
+    <ParamField path="filter" type="(newValue, prevValue) => boolean">
+      Filter function to prevent certain value changes. Return `false` to skip update.
+    </ParamField>
+
+    <ParamField path="isDirty" type="(newValue, prevValue) => boolean">
+      Custom function to determine if field is dirty. Defaults to deep equality check.
+    </ParamField>
+
+    <ParamField path="fromState" type="(state, self) => Value">
+      Transform internal state to user-facing value. Enables reactive computed values.
+    </ParamField>
+
+    <ParamField path="toState" type="(value, self) => State">
+      Transform user input to internal state. Can throw `throwAbort()` to cancel update.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Value
+
+<ResponseField name="FieldAtom" type="FieldAtom<State, Value>">
+  Field atom with the following properties:
+
+  <Expandable title="properties">
+    <ResponseField name="value" type="Atom<Value>">
+      Computed atom with the field's value (transformed via `fromState` if provided)
+    </ResponseField>
+
+    <ResponseField name="change" type="Action<[Value], Value>">
+      Action to update the field value
+    </ResponseField>
+
+    <ResponseField name="focus" type="Computed<FocusState>">
+      Focus state: `{ active: boolean, dirty: boolean, touched: boolean }`
+      - `focus.in()` - Mark field as focused
+      - `focus.out()` - Mark field as blurred
+    </ResponseField>
+
+    <ResponseField name="validation" type="Computed<ValidationState>">
+      Validation state: `{ error?: string, triggered: boolean, validating?: Promise }`
+      - `validation.trigger()` - Manually trigger validation
+      - `validation.errors()` - Array of all validation errors
+      - `validation.clearErrors(source?)` - Clear validation errors
+    </ResponseField>
+
+    <ResponseField name="disabled" type="Atom<boolean>">
+      Whether the field is disabled. Disabled fields are excluded from validation and focus tracking.
+    </ResponseField>
+
+    <ResponseField name="reset" type="Action">
+      Reset field to initial state
+    </ResponseField>
+
+    <ResponseField name="initState" type="Atom<State>">
+      The initial state atom. Can be updated to change the reset target.
+    </ResponseField>
+
+    <ResponseField name="elementRef" type="Atom<HTMLElement | null>">
+      Reference to the associated DOM element (useful for autofocus)
+    </ResponseField>
+
+    <ResponseField name="options" type="Atom<FieldOptions>">
+      Field options that can be dynamically updated
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Field
+
+```typescript
+import { reatomField } from '@reatom/framework'
+
+const emailField = reatomField('', 'emailField')
+
+// Change value
+emailField.change('user@example.com')
+
+// Read value
+console.log(emailField.value()) // 'user@example.com'
+console.log(emailField()) // 'user@example.com' (state)
+
+// Focus tracking
+emailField.focus.in()
+console.log(emailField.focus().active) // true
+
+emailField.focus.out()
+console.log(emailField.focus().touched) // true
+```
+
+### Field with Validation
+
+```typescript
+import { reatomField } from '@reatom/framework'
+
+const usernameField = reatomField('', {
+  name: 'username',
+  validate: ({ value }) => {
+    if (value.length < 3) return 'Username too short'
+    if (!/^[a-zA-Z0-9_]+$/.test(value)) return 'Invalid characters'
+  },
+  validateOnChange: true,
+})
+
+usernameField.change('ab')
+console.log(usernameField.validation().error) // 'Username too short'
+
+usernameField.change('alice')
+console.log(usernameField.validation().error) // undefined
+```
+
+### Async Validation
+
+```typescript
+import { reatomField } from '@reatom/framework'
+import { wrap } from '@reatom/framework'
+
+const emailField = reatomField('', {
+  name: 'email',
+  validate: async ({ value }) => {
+    if (!value.includes('@')) return 'Invalid email'
+    
+    // Check if email is available
+    const response = await wrap(
+      fetch(`/api/check-email?email=${value}`)
+    )
+    const { available } = await response.json()
+    
+    if (!available) throw new Error('Email already taken')
+  },
+  validateOnBlur: true,
+})
+
+emailField.change('test@example.com')
+emailField.focus.out()
+
+// Check validation state
+console.log(emailField.validation().validating) // Promise
+await wrap(emailField.validation().validating)
+console.log(emailField.validation().error) // 'Email already taken' or undefined
+```
+
+### Standard Schema Validation
+
+```typescript
+import { reatomField } from '@reatom/framework'
+import { z } from 'zod'
+
+const ageField = reatomField(0, {
+  name: 'age',
+  validate: z.number().min(18, 'Must be 18 or older'),
+  validateOnChange: true,
+})
+
+ageField.change(15)
+console.log(ageField.validation().error) // 'Must be 18 or older'
+
+ageField.change(25)
+console.log(ageField.validation().error) // undefined
+```
+
+### State/Value Transformation
+
+```typescript
+import { reatomField } from '@reatom/framework'
+
+// Store as number, display as formatted string
+const priceField = reatomField<number, string>(100.5, {
+  name: 'price',
+  fromState: (state) => state.toFixed(2), // number -> string
+  toState: (value) => parseFloat(value),  // string -> number
+})
+
+console.log(priceField()) // 100.5 (state)
+console.log(priceField.value()) // '100.50' (value)
+
+priceField.change('99.99')
+console.log(priceField()) // 99.99
+console.log(priceField.value()) // '99.99'
+```
+
+### Reactive Transformations
+
+```typescript
+import { atom, reatomField } from '@reatom/framework'
+
+const decimalPlaces = atom(2, 'decimalPlaces')
+
+const priceField = reatomField<number, string>(100.5, {
+  name: 'price',
+  fromState: (state) => state.toFixed(decimalPlaces()),
+  toState: (value) => {
+    if (!value) return 0
+    const parsed = parseFloat(value)
+    const multiplier = Math.pow(10, decimalPlaces())
+    return Math.round(parsed * multiplier) / multiplier
+  },
+})
+
+priceField.change('100.12345')
+console.log(priceField.value()) // '100.12'
+
+decimalPlaces.set(4)
+console.log(priceField.value()) // '100.1200'
+```
+
+### Aborting Invalid Updates
+
+```typescript
+import { reatomField, throwAbort } from '@reatom/framework'
+
+const numberField = reatomField(0, {
+  name: 'number',
+  fromState: (state) => state.toString(),
+  toState: (value: string) => {
+    const parsed = Number(value)
+    // Abort if invalid, keeping previous value
+    return isNaN(parsed) ? throwAbort() : parsed
+  },
+})
+
+numberField.change('123')
+console.log(numberField()) // 123
+
+numberField.change('invalid')
+console.log(numberField()) // 123 (unchanged)
+```
+
+### Custom Filter
+
+```typescript
+import { reatomField } from '@reatom/framework'
+
+const uppercaseField = reatomField('', {
+  name: 'uppercase',
+  filter: (newValue, prevValue) => {
+    // Only allow uppercase changes
+    return newValue === newValue.toUpperCase()
+  },
+})
+
+uppercaseField.change('HELLO')
+console.log(uppercaseField.value()) // 'HELLO'
+
+uppercaseField.change('hello')
+console.log(uppercaseField.value()) // 'HELLO' (unchanged)
+```
+
+### Dynamic Validation
+
+```typescript
+import { reatomField } from '@reatom/framework'
+
+const passwordField = reatomField('', 'password')
+
+const confirmField = reatomField('', {
+  name: 'confirm',
+  validateOnChange: true,
+  validate: () => {
+    if (
+      !passwordField.validation().error &&
+      passwordField.value() !== confirmField.value()
+    ) {
+      return 'Passwords do not match'
+    }
+  },
+})
+
+passwordField.change('secret123')
+confirmField.change('secret456')
+console.log(confirmField.validation().error) // 'Passwords do not match'
+
+confirmField.change('secret123')
+console.log(confirmField.validation().error) // undefined
+```
+
+### Conditional Validation
+
+```typescript
+import { reatomField } from '@reatom/framework'
+import { z } from 'zod'
+
+const field = reatomField(90, {
+  name: 'field',
+  validateOnChange: true,
+  validate: ({ focus }) => {
+    // Only validate if field has been modified
+    if (focus.dirty) {
+      return z.number().min(100, 'Must be at least 100')
+    }
+  },
+})
+
+// No validation on first render
+console.log(field.validation().error) // undefined
+
+// Validation triggers after change
+field.change(91)
+console.log(field.validation().error) // 'Must be at least 100'
+```
+
+### Disabled State
+
+```typescript
+import { reatomField } from '@reatom/framework'
+
+const field = reatomField('', {
+  validate: () => 'Error',
+  validateOnChange: true,
+})
+
+field.change('value')
+console.log(field.validation().error) // 'Error'
+console.log(field.focus().dirty) // true
+
+// Disable field
+field.disabled.set(true)
+console.log(field.validation().error) // undefined
+console.log(field.focus().dirty) // false
+
+// Re-enable
+field.disabled.set(false)
+console.log(field.validation().error) // 'Error'
+```
+
+### Element Reference
+
+```typescript
+import { reatomField } from '@reatom/framework'
+
+const field = reatomField('', 'field')
+
+// In your component
+const inputElement = document.querySelector('input')
+field.elementRef.set(inputElement)
+
+// Later, focus programmatically
+field.elementRef()?.focus()
+```
+
+### Reset with Custom State
+
+```typescript
+import { reatomField } from '@reatom/framework'
+
+const field = reatomField(100, 'field')
+
+field.change(200)
+console.log(field()) // 200
+
+// Reset to initial
+field.reset()
+console.log(field()) // 100
+
+// Reset to custom value
+field.reset(300)
+console.log(field()) // 300
+console.log(field.initState()) // 300 (updated)
+```
+
+## Related
+
+- [reatomForm](/api/forms/reatom-form) - Create complete forms
+- [reatomFieldArray](/api/forms/reatom-field-array) - Manage dynamic field arrays
+- [withField](/api/forms/with-field) - Extend existing atoms with field capabilities

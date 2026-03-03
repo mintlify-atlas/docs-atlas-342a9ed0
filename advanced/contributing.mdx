@@ -1,0 +1,375 @@
+---
+title: Contributing Guide
+description: Learn how to contribute to Reatom - from reporting issues to creating packages and submitting pull requests.
+---
+
+We welcome contributions to Reatom! This guide will help you get started whether you're fixing a bug, adding a feature, or creating a new package.
+
+<Note>
+  We prefer English language for all communication in issues, pull requests, and discussions.
+</Note>
+
+## Creating an Issue
+
+Before creating an issue, please:
+
+1. **Search existing issues** - Check if the problem is [already reported](https://github.com/reatom/reatom/issues)
+2. **Provide context** - Include relevant details about your environment and use case
+
+### Bug Reports
+
+For bug reports, please include:
+
+- **Reproduction** - Create a minimal reproduction using [StackBlitz](https://stackblitz.com) or [CodeSandbox](https://codesandbox.io)
+- **Expected behavior** - What should happen
+- **Actual behavior** - What actually happens
+- **Environment** - Reatom version, framework, Node version, etc.
+
+<Tip>
+  A good reproduction is half the solution! The easier it is to reproduce, the faster we can fix it.
+</Tip>
+
+### Feature Requests
+
+For feature requests, please include:
+
+- **Motivation** - Why is this feature needed?
+- **Use cases** - How would you use this feature?
+- **Examples** - Show what the API might look like
+- **Alternatives** - What alternatives have you considered?
+
+## Development Setup
+
+<Steps>
+  <Step title="Fork and clone the repository">
+    ```bash
+    git clone https://github.com/YOUR_USERNAME/reatom.git
+    cd reatom
+    ```
+  </Step>
+  
+  <Step title="Create a development branch from v1000">
+    ```bash
+    git checkout -b my-feature v1000
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    We recommend Node 24.2.0 and pnpm 10.25.0:
+    ```bash
+    pnpm install
+    ```
+    
+    <Note>
+      This command installs dependencies for all packages but only builds `@reatom/core`.
+    </Note>
+  </Step>
+  
+  <Step title="Build the package you're editing">
+    ```bash
+    pnpm --filter <PACKAGE_NAME> run build
+    ```
+    
+    Replace `<PACKAGE_NAME>` with the relevant package like `@reatom/react`.
+    
+    Example:
+    ```bash
+    pnpm --filter @reatom/react run build
+    ```
+  </Step>
+</Steps>
+
+## Making Changes
+
+### Coding Guidelines
+
+- **Bug fixes** should include tests that reproduce the bug
+- **New features** must be tested and documented
+- **Type annotations** - Use `// @ts-ignore` for temporary suppressions, `// @ts-expect-error` for known false positives
+
+<Warning>
+  Use `// @ts-ignore` if you're uncertain about an error. Use `// @ts-expect-error` when you're certain it's a false positive and want TypeScript to verify it.
+</Warning>
+
+### Testing
+
+Run tests for your package:
+
+```bash
+pnpm --filter @reatom/react test
+```
+
+Run tests for all packages:
+
+```bash
+pnpm test
+```
+
+### Code Style
+
+- Follow the existing code style in the package
+- Use meaningful variable and function names
+- Add comments for complex logic
+- Keep functions focused and small
+
+## Commit Messages
+
+Reatom uses [Conventional Commits](https://conventionalcommits.org) specification:
+
+```
+<type>[optional scope]: <description>
+```
+
+### Commit Types
+
+- `chore` - Repository maintenance changes
+- `feat` - New feature
+- `fix` - Bug fix
+- `perf` - Performance improvement
+- `refactor` - Code change that neither fixes a bug nor adds a feature
+- `docs` - Documentation only changes
+- `ci` - CI configuration and script changes
+- `style` - Cosmetic code changes
+- `test` - Adding or correcting tests
+- `revert` - Reverting previous commits
+
+### Scope
+
+The scope is the package directory name. For example, `/packages/react` is scoped as `react`.
+
+### Description Rules
+
+- Write in **English**
+- Use **imperative mood** (like `change` instead of `changed` or `changes`)
+- **Don't capitalize** the first letter
+- **Don't add period** (`.`) at the end
+
+### Examples
+
+```bash
+# Good commits
+git commit -m "docs: fix typo in react"
+git commit -m "fix(core): add check for atoms with equal ids"
+git commit -m "feat(react): add reatomComponent hook"
+git commit -m "perf(core): optimize dependency tracking"
+
+# Bad commits
+git commit -m "Fixed bug"  # No type, capitalized, vague
+git commit -m "feat: Added new feature."  # Capitalized, has period
+git commit -m "docs(react): Changes the documentation"  # Not imperative
+```
+
+## Submitting a Pull Request
+
+<Steps>
+  <Step title="Make your changes and commit them">
+    Follow the [commit message guidelines](#commit-messages).
+  </Step>
+  
+  <Step title="Push your branch">
+    ```bash
+    git push origin my-feature
+    ```
+  </Step>
+  
+  <Step title="Create a Pull Request">
+    Go to the [Reatom repository](https://github.com/reatom/reatom/compare) and create a Pull Request to merge into `v1000`.
+  </Step>
+  
+  <Step title="Link to the issue">
+    Use a [closing keyword](https://help.github.com/en/articles/closing-issues-using-keywords) or provide a description:
+    
+    ```
+    fix #74
+    ```
+    
+    Or explain your changes with motivation if there's no related issue.
+  </Step>
+  
+  <Step title="Wait for review">
+    A team member will review your PR. Be responsive to feedback and make requested changes.
+  </Step>
+</Steps>
+
+### PR Guidelines
+
+- **Keep it focused** - One PR should address one issue or feature
+- **Update documentation** - Include docs for new features
+- **Add tests** - Ensure new code is tested
+- **Follow code style** - Match the existing patterns
+- **Be responsive** - Address review feedback promptly
+
+<Tip>
+  Small, focused PRs are easier to review and more likely to be merged quickly.
+</Tip>
+
+## Creating a New Package
+
+Reatom's ecosystem includes adapters for Web APIs and popular npm modules. Creating a new package is similar to editing an existing one.
+
+<Steps>
+  <Step title="Run the package generator">
+    From the repository root:
+    ```bash
+    pnpm run package-generator
+    ```
+    
+    Follow the interactive prompts to create your package structure.
+  </Step>
+  
+  <Step title="Add dependencies">
+    Add dependencies to your package:
+    ```bash
+    pnpm --filter <PACKAGE_NAME> add <LIBRARY>
+    ```
+    
+    Or update `package.json` manually and run:
+    ```bash
+    pnpm install
+    ```
+  </Step>
+  
+  <Step title="For adapter packages, add peer dependencies">
+    If creating an adapter (like `@reatom/react` for React):
+    ```bash
+    pnpm --filter <PACKAGE_NAME> add --save-peer <LIBRARY>
+    ```
+    
+    Example:
+    ```bash
+    pnpm --filter @reatom/vue add --save-peer vue
+    ```
+  </Step>
+  
+  <Step title="Implement your package">
+    Follow the [coding guidelines](#coding-guidelines) and add tests.
+  </Step>
+  
+  <Step title="Document your package">
+    Create or update the README.md in your package directory with:
+    - Installation instructions
+    - Usage examples
+    - API documentation
+  </Step>
+</Steps>
+
+### Package Structure
+
+```
+packages/my-package/
+├── src/
+│   ├── index.ts       # Main entry point
+│   └── index.test.ts  # Tests
+├── package.json
+├── tsconfig.json
+├── README.md
+└── CHANGELOG.md
+```
+
+## Development Workflow
+
+### Watch Mode
+
+During development, run your package in watch mode:
+
+```bash
+pnpm --filter @reatom/react dev
+```
+
+This rebuilds automatically when you make changes.
+
+### Testing Changes
+
+Test your changes in an example app:
+
+1. Build your package
+2. Link it to an example app using `pnpm link`
+3. Or use the examples in the repo: `examples/react-search`
+
+### Running Examples
+
+```bash
+cd examples/react-search
+pnpm install
+pnpm dev
+```
+
+## Documentation
+
+### Code Comments
+
+Add JSDoc comments for public APIs:
+
+```ts
+/**
+ * Extension that adds abort handling to actions and computed atoms.
+ *
+ * @example
+ *   const fetchUser = action(async (id: number) => {
+ *     const response = await wrap(fetch(`/api/user/${id}`))
+ *     return response.json()
+ *   }).extend(withAbort())
+ *
+ * @param strategy - The abort strategy to use:
+ *   - `'last-in-win'` (default): Aborts previous concurrent calls
+ *   - `'first-in-win'`: Ignores new calls while one is running
+ *   - `'manual'`: No automatic abort, manual control only
+ */
+export let withAbort = (
+  strategy: 'last-in-win' | 'first-in-win' | 'manual' = 'last-in-win',
+): AssignerExt<AbortExt> => {
+  // Implementation
+}
+```
+
+### README Files
+
+Each package should have a README with:
+
+- **Installation** - How to install the package
+- **Quick Start** - Basic usage example
+- **API Reference** - All exported functions/types
+- **Examples** - Common use cases
+- **TypeScript** - Type information if relevant
+
+## Community
+
+Join the Reatom community:
+
+- [Twitter](https://twitter.com/ReatomJS) - Updates and announcements
+- [Discord](https://discord.gg/EPAKK5SNFh) - Real-time chat
+- [GitHub Discussions](https://github.com/reatom/reatom/discussions) - Questions and ideas
+- [Telegram (RU)](https://t.me/reatom_ru) - Russian community
+- [YouTube (RU)](https://www.youtube.com/playlist?list=PLXObawgXpIfxERCN8Lqd89wdsXeUHm9XU) - Video tutorials
+
+## Code of Conduct
+
+- **Be respectful** - Treat everyone with respect
+- **Be constructive** - Provide helpful feedback
+- **Be patient** - Maintainers are volunteers
+- **Be collaborative** - Work together towards solutions
+
+## Getting Help
+
+If you need help contributing:
+
+- Check existing [issues](https://github.com/reatom/reatom/issues) and [PRs](https://github.com/reatom/reatom/pulls)
+- Ask in [Discord](https://discord.gg/EPAKK5SNFh)
+- Start a [GitHub Discussion](https://github.com/reatom/reatom/discussions)
+
+## Recognition
+
+All contributors are recognized in:
+
+- [Contributors graph](https://github.com/reatom/reatom/graphs/contributors)
+- Package release notes
+- Project README
+
+Thank you for contributing to Reatom! Your efforts help make state management better for everyone.
+
+## Additional Resources
+
+- [Architecture Overview](https://www.reatom.dev/handbook/history) - Understanding Reatom's design
+- [API Reference](https://www.reatom.dev/reference/) - Complete API documentation
+- [Examples](https://github.com/reatom/reatom/tree/v1000/examples) - Reference implementations
+- [Changelog](https://github.com/reatom/reatom/blob/v1000/packages/core/CHANGELOG.md) - Recent changes

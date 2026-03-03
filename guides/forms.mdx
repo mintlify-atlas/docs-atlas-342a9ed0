@@ -1,0 +1,665 @@
+---
+title: Form Management
+description: Build powerful, type-safe forms with validation, field arrays, and schema support
+---
+
+# Form Management
+
+Reatom's form system provides a comprehensive solution for building complex forms with validation, field management, and seamless schema integration.
+
+## Core Concepts
+
+Reatom forms are built on three main primitives:
+
+- **Fields** - Individual form inputs with validation and state tracking
+- **Field Arrays** - Dynamic lists of fields
+- **Forms** - Complete form systems with submit handling and validation
+
+## Quick Start
+
+### Basic Form
+
+```ts
+import { reatomForm } from '@reatom/core/form'
+import { wrap, noop } from '@reatom/core'
+
+const loginForm = reatomForm(
+  {
+    email: '',
+    password: '',
+  },
+  {
+    onSubmit: async (state) => {
+      const res = await wrap(fetch('/api/login', {
+        method: 'POST',
+        body: JSON.stringify(state),
+      }))
+      return await wrap(res.json())
+    },
+  }
+)
+
+// Access fields
+loginForm.fields.email.change('user@example.com')
+loginForm.fields.password.change('secret')
+
+// Submit
+await wrap(loginForm.submit()).catch(noop)
+
+if (loginForm.submit.error()) {
+  console.log('Login failed')
+}
+```
+
+## Fields
+
+### Creating Fields
+
+<Tabs items={['Primitive Values', 'Custom Field', 'With Validation']}>
+
+<Tab value="Primitive Values">
+Automatic field creation:
+
+```ts
+const form = reatomForm({
+  name: '',
+  age: 0,
+  active: false,
+})
+
+// Fields are created automatically
+form.fields.name.change('John')
+form.fields.age.change(25)
+form.fields.active.change(true)
+```
+</Tab>
+
+<Tab value="Custom Field">
+Explicit field creation with options:
+
+```ts
+import { reatomField } from '@reatom/core/form'
+
+const form = reatomForm({
+  email: reatomField('', {
+    validate: ({ value }) => {
+      if (!value.includes('@')) return 'Invalid email'
+    },
+    validateOnChange: true,
+  }),
+})
+```
+</Tab>
+
+<Tab value="With Validation">
+Field-level async validation:
+
+```ts
+const form = reatomForm({
+  username: reatomField('', {
+    validate: async ({ value }) => {
+      const res = await wrap(fetch(`/api/check-username?name=${value}`))
+      const available = await wrap(res.json())
+      if (!available) throw new Error('Username taken')
+    },
+    validateOnBlur: true,
+  }),
+})
+```
+</Tab>
+
+</Tabs>
+
+### Field State
+
+Each field tracks multiple states:
+
+```ts
+const emailField = form.fields.email
+
+// Value and state
+emailField.value()    // Current value
+emailField()          // Internal state (usually same as value)
+
+// Focus state
+emailField.focus()    // { active: boolean, dirty: boolean, touched: boolean }
+emailField.focus.in() // Focus the field
+emailField.focus.out() // Blur the field
+
+// Validation state
+emailField.validation() // { errors: [], triggered: boolean, validating?: Promise }
+
+// Actions
+emailField.change('new@email.com') // Change value
+emailField.reset()                  // Reset to initial value
+```
+
+### Value Transformation
+
+Transform values between display and storage:
+
+```ts
+import { reatomField } from '@reatom/core/form'
+
+const priceField = reatomField<number, string>(100.5, {
+  // Convert internal state to display value
+  fromState: (state) => state.toFixed(2),
+  
+  // Convert display value to internal state
+  toState: (value) => {
+    const parsed = parseFloat(value)
+    return isNaN(parsed) ? 0 : parsed
+  },
+})
+
+priceField()        // → 100.5 (internal state)
+priceField.value()  // → "100.50" (display value)
+
+priceField.change('150.75')
+priceField()        // → 150.75
+priceField.value()  // → "150.75"
+```
+
+## Field Arrays
+
+Manage dynamic lists of fields:
+
+```ts
+import { reatomFieldArray, reatomField } from '@reatom/core/form'
+
+const todoForm = reatomForm({
+  todos: reatomFieldArray({
+    initState: ['Buy milk'],
+    create: (value: string) => reatomField(value),
+  }),
+})
+
+// Add items
+todoForm.fields.todos.create('Write docs')
+todoForm.fields.todos.create('Ship feature')
+
+// Access items
+const items = todoForm.fields.todos.array()
+items[0]?.change('Buy organic milk')
+
+// Get size
+todoForm.fields.todos().size // → 3
+
+// Remove items
+todoForm.fields.todos.clear()
+```
+
+### Nested Field Arrays
+
+```ts
+interface TodoItem {
+  text: string
+  subtasks: string[]
+}
+
+const form = reatomForm({
+  todos: reatomFieldArray({
+    initState: [],
+    create: () => reatomFieldSet({
+      text: '',
+      subtasks: reatomFieldArray({
+        initState: [],
+        create: (text: string) => reatomField(text),
+      }),
+    }),
+  }),
+})
+
+// Add a todo
+const todo = form.fields.todos.create()
+todo.fields.text.change('Main task')
+
+// Add subtasks
+todo.fields.subtasks.create('Subtask 1')
+todo.fields.subtasks.create('Subtask 2')
+```
+
+## Validation
+
+### Field Validation
+
+<Steps>
+
+### Define Validation Rules
+
+```ts
+const passwordField = reatomField('', {
+  validate: ({ value }) => {
+    if (value.length < 8) {
+      return 'Password must be at least 8 characters'
+    }
+    if (!/[A-Z]/.test(value)) {
+      return 'Password must contain uppercase letter'
+    }
+    if (!/[0-9]/.test(value)) {
+      return 'Password must contain number'
+    }
+  },
+})
+```
+
+### Access Validation State
+
+```ts
+const validation = passwordField.validation()
+
+validation.errors     // Array of error objects
+validation.triggered  // Has validation been triggered?
+validation.validating // Promise if async validation running
+```
+
+### Trigger Validation
+
+```ts
+// Manual trigger
+await wrap(passwordField.validation.trigger())
+
+// Auto-trigger on change
+const field = reatomField('', {
+  validate: ({ value }) => { /* ... */ },
+  validateOnChange: true,
+})
+
+// Auto-trigger on blur
+const field = reatomField('', {
+  validate: ({ value }) => { /* ... */ },
+  validateOnBlur: true,
+})
+```
+
+</Steps>
+
+### Form-Level Validation
+
+```ts
+const form = reatomForm(
+  {
+    password: '',
+    confirmPassword: '',
+  },
+  {
+    validateBeforeSubmit: (state) => {
+      if (state.password !== state.confirmPassword) {
+        throw new Error('Passwords do not match')
+      }
+    },
+  }
+)
+```
+
+### Schema Validation
+
+Integrate with Zod, Valibot, or any Standard Schema library:
+
+```ts
+import { z } from 'zod'
+
+const registerForm = reatomForm(
+  {
+    email: '',
+    age: 0,
+    terms: false,
+  },
+  {
+    schema: z.object({
+      email: z.string().email('Invalid email address'),
+      age: z.number().min(18, 'Must be 18 or older'),
+      terms: z.boolean().refine(v => v, 'Must accept terms'),
+    }),
+    onSubmit: async (state) => {
+      // state is typed as validated output
+      console.log(state.email) // ✓ Valid email
+      console.log(state.age)   // ✓ Number >= 18
+    },
+  }
+)
+```
+
+## Submit Handling
+
+### Basic Submit
+
+```ts
+const form = reatomForm(
+  { email: '', password: '' },
+  {
+    onSubmit: async (state) => {
+      const res = await wrap(fetch('/api/login', {
+        method: 'POST',
+        body: JSON.stringify(state),
+      }))
+      return await wrap(res.json())
+    },
+  }
+)
+
+// Submit returns a promise
+const result = await wrap(form.submit())
+```
+
+### Submit with Parameters
+
+```ts
+const form = reatomForm(
+  { email: '' },
+  {
+    onSubmit: async (state, skipDebounce: boolean) => {
+      if (!skipDebounce) await wrap(sleep(300))
+      return { success: true, email: state.email }
+    },
+  }
+)
+
+// Call with custom params
+const result = await wrap(form.submit(true))
+console.log(form.submit.data()) // { success: true, email: '...' }
+```
+
+### Submit State
+
+The submit action is extended with `withAsyncData`:
+
+```ts
+// Loading state
+form.submit.pending()  // Number of pending submissions
+form.submit.ready()    // Is submission complete?
+
+// Results
+form.submit.data()     // Last successful result
+form.submit.error()    // Last error
+
+// Status tracking
+form.submit.status()   // Detailed status information
+
+// Submitted flag
+form.submitted()       // Has form been submitted?
+```
+
+### Submit Flow
+
+When `submit()` is called:
+
+<Steps>
+
+### Field Validation
+All field validations are triggered in parallel.
+
+### Schema Validation
+If a schema is provided, it validates the entire form state.
+
+### Form Validation
+The `validateBeforeSubmit` callback runs with validated state.
+
+### Submit Handler
+The `onSubmit` callback runs with validated state.
+
+### State Update
+The `submitted` atom is set to `true`.
+
+### Optional Reset
+If `resetOnSubmit: true`, the form resets to initial state.
+
+</Steps>
+
+## Form State Management
+
+### Accessing Form State
+
+```ts
+const form = reatomForm({
+  name: '',
+  email: '',
+  age: 0,
+})
+
+// Get all field values
+const state = form()
+console.log(state) // { name: '', email: '', age: 0 }
+
+// Access individual fields
+const name = form.fields.name()
+const email = form.fields.email.value()
+```
+
+### Focus Management
+
+```ts
+// Get focus state for entire form
+const focus = form.focus()
+focus.active  // Is any field focused?
+focus.dirty   // Has any field changed?
+focus.touched // Has any field been blurred?
+
+// Focus individual fields
+form.fields.email.focus.in()
+form.fields.email.focus.out()
+```
+
+### Reset Form
+
+```ts
+// Reset entire form
+form.reset()
+
+// Reset individual field
+form.fields.email.reset()
+
+// Reset on successful submit
+const form = reatomForm(
+  { email: '' },
+  { 
+    resetOnSubmit: true,
+    onSubmit: async (state) => { /* ... */ }
+  }
+)
+```
+
+## Advanced Patterns
+
+### Multi-Step Forms
+
+```ts
+const currentStep = atom(1, 'currentStep')
+
+const wizardForm = reatomForm({
+  // Step 1
+  email: '',
+  
+  // Step 2
+  profile: reatomFieldSet({
+    firstName: '',
+    lastName: '',
+  }),
+  
+  // Step 3
+  preferences: reatomFieldSet({
+    newsletter: false,
+    notifications: true,
+  }),
+})
+
+const nextStep = action(() => {
+  const step = currentStep()
+  
+  // Validate current step
+  if (step === 1) {
+    wizardForm.fields.email.validation.trigger()
+  } else if (step === 2) {
+    wizardForm.fields.profile.validation.trigger()
+  }
+  
+  // Move to next step
+  currentStep.set(step + 1)
+}, 'nextStep')
+```
+
+### Dependent Fields
+
+```ts
+const form = reatomForm({
+  country: 'US',
+  state: '',
+  city: '',
+})
+
+// Reset dependent fields when country changes
+form.fields.country.extend(
+  withCallHook(() => {
+    form.fields.state.reset()
+    form.fields.city.reset()
+  })
+)
+```
+
+### Custom Field Components
+
+```tsx
+import { useAtom } from '@reatom/npm-react'
+import type { FieldAtom } from '@reatom/core/form'
+
+function TextField({ field }: { field: FieldAtom<string> }) {
+  const [value, setValue] = useAtom(field.value)
+  const [focus] = useAtom(field.focus)
+  const [validation] = useAtom(field.validation)
+  
+  return (
+    <div>
+      <input
+        value={value}
+        onChange={(e) => field.change(e.target.value)}
+        onFocus={() => field.focus.in()}
+        onBlur={() => field.focus.out()}
+      />
+      {focus.touched && validation.errors.map((error) => (
+        <span key={error.message} className="error">
+          {error.message}
+        </span>
+      ))}
+    </div>
+  )
+}
+```
+
+### Server-Side Validation
+
+```ts
+import { resolveFieldByPath } from '@reatom/core/form'
+
+const form = reatomForm(
+  { /* ... */ },
+  {
+    onSubmit: async (state) => {
+      const res = await wrap(fetch('/api/submit', {
+        method: 'POST',
+        body: JSON.stringify(state),
+      }))
+      
+      if (!res.ok) {
+        const errors = await wrap(res.json())
+        
+        // Map errors to fields
+        for (const error of errors) {
+          const field = resolveFieldByPath(error.path, form.fields)
+          if (field) {
+            field.validation.errors.unshift({
+              source: 'submission',
+              message: error.message,
+            })
+          }
+        }
+        
+        throw new Error('Validation failed')
+      }
+      
+      return await wrap(res.json())
+    },
+  }
+)
+```
+
+## Best Practices
+
+### 1. Use Schema Validation
+
+Prefer schema validation over manual validation:
+
+```ts
+// ✓ Good - type-safe, comprehensive
+const form = reatomForm(
+  { email: '', age: 0 },
+  {
+    schema: z.object({
+      email: z.string().email(),
+      age: z.number().min(18),
+    }),
+  }
+)
+
+// ✗ Less ideal - manual validation
+const form = reatomForm(
+  { email: '', age: 0 },
+  {
+    validateBeforeSubmit: (state) => {
+      if (!state.email.includes('@')) throw new Error('Invalid email')
+      if (state.age < 18) throw new Error('Too young')
+    },
+  }
+)
+```
+
+### 2. Validate on Blur for Better UX
+
+Avoid validating on every keystroke:
+
+```ts
+const form = reatomForm(
+  { /* ... */ },
+  {
+    validateOnBlur: true,    // ✓ Good - validates when user leaves field
+    validateOnChange: false, // ✓ Good - avoids annoying users
+  }
+)
+```
+
+### 3. Handle Submit Errors
+
+Always handle submit errors gracefully:
+
+```ts
+await wrap(form.submit()).catch(noop)
+
+if (form.submit.error()) {
+  // Show error message
+  console.error(form.submit.error())
+}
+```
+
+### 4. Use Field Arrays for Dynamic Lists
+
+Don't manually manage array state:
+
+```ts
+// ✓ Good - automatic validation and state management
+const form = reatomForm({
+  items: reatomFieldArray({
+    initState: [],
+    create: (value) => reatomField(value),
+  }),
+})
+
+// ✗ Bad - manual array management
+const form = reatomForm({
+  items: [] as string[],
+})
+```
+
+## Related APIs
+
+- [reatomForm()](/api/forms/reatom-form) - Create a form
+- [reatomField()](/api/forms/reatom-field) - Create a field
+- [reatomFieldArray()](/api/forms/reatom-field-array) - Create a field array

@@ -1,0 +1,476 @@
+---
+title: "Effects"
+description: "Reactive side effects that automatically track dependencies and handle cleanup"
+---
+
+## Overview
+
+**Effects** are reactive side effects that automatically track their dependencies and clean themselves up when dependencies change or when the effect is aborted. They're designed for running side effects in response to state changes.
+
+Effects:
+- Automatically track atom dependencies
+- Re-run when dependencies change
+- Support async operations with abort handling
+- Clean up automatically on context abort
+- Return an unsubscribe function for manual cleanup
+
+## Creating Effects
+
+### Basic Usage
+
+```typescript
+import { atom, effect } from '@reatom/core'
+
+const count = atom(0, 'count')
+
+// Create an effect that runs when count changes
+effect(() => {
+  console.log('Count is:', count())
+}, 'logCount')
+// Immediately logs: "Count is: 0"
+
+count.set(5)
+// Logs: "Count is: 5"
+```
+
+### Type Signature
+
+```typescript
+interface Effect<State> extends Computed<State> {
+  unsubscribe: Unsubscribe
+}
+
+function effect<T>(
+  cb: () => T,
+  name?: string
+): Effect<T>
+```
+
+## Automatic Dependency Tracking
+
+Effects automatically track any atoms read during execution:
+
+```typescript
+const firstName = atom('John', 'firstName')
+const lastName = atom('Doe', 'lastName')
+
+// Automatically depends on both firstName and lastName
+effect(() => {
+  console.log(`Full name: ${firstName()} ${lastName()}`)
+}, 'logFullName')
+// Logs: "Full name: John Doe"
+
+firstName.set('Jane')
+// Logs: "Full name: Jane Doe"
+
+lastName.set('Smith')
+// Logs: "Full name: Jane Smith"
+```
+
+<Note>
+Effects automatically subscribe and start running immediately upon creation.
+</Note>
+
+## Async Effects
+
+Effects work seamlessly with async operations:
+
+```typescript
+import { atom, effect, wrap } from '@reatom/core'
+
+const userId = atom('user123', 'userId')
+const userData = atom(null, 'userData')
+
+// Fetch user data whenever userId changes
+effect(async () => {
+  const id = userId()
+  
+  console.log('Fetching user:', id)
+  
+  try {
+    const response = await wrap(fetch(`/api/users/${id}`))
+    const data = await wrap(response.json())
+    userData.set(data)
+  } catch (error) {
+    if (!isAbort(error)) {
+      console.error('Failed to fetch user:', error)
+    }
+  }
+}, 'fetchUserEffect')
+
+// When userId changes, previous fetch is aborted
+userId.set('user456')
+```
+
+<Tip>
+Use `wrap()` with promises to make them abortable. When the effect re-runs or is cancelled, wrapped promises are automatically aborted.
+</Tip>
+
+## Polling Pattern
+
+Effects are perfect for polling data:
+
+```typescript
+import { atom, effect, wrap, sleep } from '@reatom/core'
+
+const isPollingActive = atom(true, 'isPollingActive')
+const data = atom(0, 'data')
+
+effect(async () => {
+  if (!isPollingActive()) return
+  
+  console.log('Starting polling...')
+  
+  while (true) {
+    try {
+      // Fetch data
+      const response = await wrap(fetch('/api/data'))
+      const newData = await wrap(response.json())
+      data.set(newData.value)
+      
+      // Wait 5 seconds
+      await wrap(sleep(5000))
+    } catch (error) {
+      if (isAbort(error)) {
+        console.log('Polling stopped')
+        break
+      }
+      throw error
+    }
+  }
+}, 'pollingEffect')
+
+// Stop polling by changing the atom
+isPollingActive.set(false)
+```
+
+## Conditional Effects
+
+Effects can run conditionally based on state:
+
+<CodeGroup>
+
+```typescript Guard Clause
+const isEnabled = atom(true, 'isEnabled')
+const value = atom(0, 'value')
+
+effect(() => {
+  // Early return if disabled
+  if (!isEnabled()) return
+  
+  console.log('Value is:', value())
+}, 'conditionalEffect')
+```
+
+```typescript Conditional Logic
+const mode = atom<'auto' | 'manual'>('auto', 'mode')
+const data = atom(null, 'data')
+
+effect(() => {
+  if (mode() === 'auto') {
+    // Only fetches when in auto mode
+    fetchData().then(result => data.set(result))
+  }
+}, 'autoFetchEffect')
+```
+
+</CodeGroup>
+
+## Manual Cleanup
+
+Effects return an `unsubscribe` function for manual cleanup:
+
+```typescript
+const count = atom(0, 'count')
+
+const counterEffect = effect(() => {
+  console.log('Count:', count())
+}, 'counterEffect')
+
+// Effect is running...
+count.set(1) // Logs: "Count: 1"
+count.set(2) // Logs: "Count: 2"
+
+// Stop the effect
+counterEffect.unsubscribe()
+
+count.set(3) // No log - effect is stopped
+```
+
+## Effect Lifecycle
+
+Effects automatically handle cleanup when context is aborted:
+
+```typescript
+import { atom, effect, wrap, context } from '@reatom/core'
+
+const active = atom(true, 'active')
+
+// Create a new context
+const ctx = context.start()
+
+ctx.run(() => {
+  effect(async () => {
+    if (!active()) return
+    
+    console.log('Effect started')
+    
+    try {
+      while (true) {
+        await wrap(sleep(1000))
+        console.log('Tick')
+      }
+    } catch (error) {
+      if (isAbort(error)) {
+        console.log('Effect cleaned up')
+      }
+    }
+  }, 'tickEffect')
+})
+
+// Reset context - automatically cleans up all effects
+context.reset()
+// Logs: "Effect cleaned up"
+```
+
+## Common Patterns
+
+### Local Storage Sync
+
+```typescript
+const settings = atom(
+  JSON.parse(localStorage.getItem('settings') || '{}'),
+  'settings'
+)
+
+// Sync to localStorage on changes
+effect(() => {
+  const value = settings()
+  localStorage.setItem('settings', JSON.stringify(value))
+}, 'syncSettings')
+```
+
+### Document Title
+
+```typescript
+const pageTitle = atom('Home', 'pageTitle')
+const unreadCount = atom(0, 'unreadCount')
+
+effect(() => {
+  const title = pageTitle()
+  const unread = unreadCount()
+  
+  document.title = unread > 0 
+    ? `(${unread}) ${title}` 
+    : title
+}, 'updateDocTitle')
+```
+
+### WebSocket Connection
+
+```typescript
+const isConnected = atom(false, 'isConnected')
+const messages = atom<string[]>([], 'messages')
+
+effect(() => {
+  if (!isConnected()) return
+  
+  const ws = new WebSocket('wss://example.com')
+  
+  ws.onmessage = (event) => {
+    messages.set(prev => [...prev, event.data])
+  }
+  
+  ws.onopen = () => {
+    console.log('Connected')
+  }
+  
+  // Cleanup on disconnect
+  return () => {
+    ws.close()
+    console.log('Disconnected')
+  }
+}, 'websocketEffect')
+```
+
+### Scroll to Top
+
+```typescript
+const currentRoute = atom('/home', 'currentRoute')
+
+effect(() => {
+  // Scroll to top whenever route changes
+  const route = currentRoute()
+  window.scrollTo(0, 0)
+  console.log('Navigated to:', route)
+}, 'scrollToTop')
+```
+
+### Auto-save
+
+```typescript
+import { atom, effect, wrap, sleep } from '@reatom/core'
+
+const content = atom('', 'content')
+const lastSaved = atom<Date | null>(null, 'lastSaved')
+
+effect(async () => {
+  const text = content()
+  
+  // Don't save empty content
+  if (!text) return
+  
+  // Debounce - wait 2 seconds
+  await wrap(sleep(2000))
+  
+  // Save
+  console.log('Auto-saving...')
+  await wrap(fetch('/api/save', {
+    method: 'POST',
+    body: JSON.stringify({ content: text })
+  }))
+  
+  lastSaved.set(new Date())
+  console.log('Saved at:', lastSaved())
+}, 'autoSave')
+```
+
+## Effects vs Actions
+
+| Feature | Effect | Action |
+|---------|--------|--------|
+| Auto-subscribes | Yes | No |
+| Accepts parameters | No | Yes |
+| Auto-tracks dependencies | Yes | No |
+| Returns value | No (returns subscription) | Yes |
+| Use case | Reactive side effects | Imperative operations |
+
+## Effects vs Computed
+
+| Feature | Effect | Computed |
+|---------|--------|----------|
+| Tracks dependencies | Yes | Yes |
+| Can have side effects | Yes | No (should be pure) |
+| Return value used | No | Yes |
+| Runs immediately | Yes | Only when read |
+| Use case | Side effects | Derived state |
+
+## Abort Handling
+
+Effects integrate with Reatom's abort system:
+
+```typescript
+import { atom, effect, wrap, isAbort } from '@reatom/core'
+
+const query = atom('', 'query')
+const results = atom([], 'results')
+
+effect(async () => {
+  const q = query()
+  
+  if (!q) {
+    results.set([])
+    return
+  }
+  
+  try {
+    // This will be aborted if query changes
+    const response = await wrap(fetch(`/api/search?q=${q}`))
+    const data = await wrap(response.json())
+    results.set(data)
+  } catch (error) {
+    // Check if it's an abort (expected) or real error
+    if (isAbort(error)) {
+      console.log('Search aborted (query changed)')
+    } else {
+      console.error('Search failed:', error)
+    }
+  }
+}, 'searchEffect')
+
+// Typing triggers multiple searches, but only the last one completes
+query.set('r')
+query.set('re')
+query.set('rea')
+query.set('reat')
+query.set('reato')
+query.set('reatom') // Only this search completes
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use wrap() for abortable async operations">
+    Always wrap promises to enable automatic cancellation:
+    
+    ```typescript
+    // Good - abortable
+    effect(async () => {
+      const response = await wrap(fetch('/api/data'))
+    })
+    
+    // Avoid - not abortable
+    effect(async () => {
+      const response = await fetch('/api/data')
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Handle abort errors gracefully">
+    Check for abort errors to distinguish from real errors:
+    
+    ```typescript
+    effect(async () => {
+      try {
+        await wrap(someAsyncOperation())
+      } catch (error) {
+        if (isAbort(error)) {
+          // Expected - dependency changed
+          return
+        }
+        // Real error - handle it
+        handleError(error)
+      }
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Use guard clauses for conditional effects">
+    Early returns make conditional logic clearer:
+    
+    ```typescript
+    // Good
+    effect(() => {
+      if (!isEnabled()) return
+      doSomething()
+    })
+    
+    // Less clear
+    effect(() => {
+      if (isEnabled()) {
+        doSomething()
+      }
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Atom" icon="atom" href="/core/atom">
+    Store mutable state
+  </Card>
+  
+  <Card title="Computed" icon="function" href="/core/computed">
+    Derive state without side effects
+  </Card>
+  
+  <Card title="Actions" icon="bolt" href="/core/actions">
+    Imperative operations with parameters
+  </Card>
+  
+  <Card title="Extend" icon="puzzle-piece" href="/core/extend">
+    Customize effect behavior
+  </Card>
+</CardGroup>

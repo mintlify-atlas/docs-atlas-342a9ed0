@@ -1,0 +1,426 @@
+---
+title: withSuspense
+description: Extension that adds suspense support to async atoms for React Suspense compatibility
+---
+
+## Overview
+
+The `withSuspense` extension adds suspense support to async atoms by creating a `suspended` computed atom that tracks resolved values from promises. It's designed to work seamlessly with React Suspense boundaries.
+
+The `suspended` atom will:
+- Return the resolved value immediately if the promise is already fulfilled
+- Throw the promise if it's still pending (allowing Suspense boundaries to catch it)
+- Propagate errors if the promise is rejected
+- Automatically update when the promise resolves
+
+## Type Signature
+
+```typescript
+function withSuspense<Target extends AtomLike>(options?: {
+  preserve?: boolean
+}): Ext<Target, SuspenseExt<AtomState<Target>>>
+
+interface SuspenseExt<State> {
+  suspended: Computed<Awaited<State>>
+}
+
+function suspense<State>(target: AtomLike<State>): Awaited<State>
+
+function settled<Result, Fallback = undefined>(
+  promise: Result | Promise<Result>,
+  fallback?: Fallback
+): Result | Fallback
+
+function withSuspenseInit<State>(): Ext<Atom<Promise<State>>, Atom<State>>
+function withSuspenseInit<Target extends AtomLike>(
+  cb: (state?: AtomState<Target>) => AtomState<Target> | Promise<AtomState<Target>>
+): Ext<Target>
+```
+
+## Parameters
+
+<ParamField path="options" type="object" optional>
+  <Expandable title="properties">
+    <ParamField path="preserve" type="boolean" default="false" optional>
+      If true, preserves the previous state when suspending instead of throwing immediately. Useful for preventing flickering in UI.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Value
+
+<ResponseField name="suspended" type="Computed<Awaited<State>>">
+  Computed atom that returns the resolved value or throws the promise/error
+</ResponseField>
+
+## Examples
+
+### Basic Suspense
+
+```typescript
+import { computed, atom } from '@reatom/core'
+import { withSuspense, suspense } from '@reatom/core/extensions'
+import { wrap } from '@reatom/core/methods'
+
+const param = atom(0, 'param')
+const data = computed(async () => param(), 'data')
+
+const result = computed(() => {
+  const syncData = suspense(data) // Auto-applies withSuspense
+  return syncData
+}, 'result')
+
+const track = subscribe(
+  computed(() => {
+    try {
+      return result()
+    } catch (error) {
+      return undefined // Handle pending state
+    }
+  })
+)
+
+await wrap(sleep())
+console.log(track) // Called with: 0
+
+param.set(1)
+// Throws promise while pending
+
+await wrap(sleep())
+console.log(result()) // → 1
+```
+
+### Using withSuspense Extension
+
+```typescript
+const param = atom(0, 'param')
+const data = computed(
+  async () => param(),
+  'data'
+).extend(withSuspense())
+
+const track = subscribe(data.suspended)
+await wrap(sleep())
+console.log(track) // Called with: 0
+
+param.set(1)
+await wrap(sleep())
+console.log(track) // Called with: 1
+```
+
+### React Suspense Integration
+
+```tsx
+import { computed } from '@reatom/core'
+import { withSuspense } from '@reatom/core/extensions'
+import { useAtom } from '@reatom/react'
+
+const userData = computed(async () => {
+  const res = await fetch('/api/user')
+  return res.json()
+}, 'userData').extend(withSuspense())
+
+function UserProfile() {
+  // Throws promise if pending, renders when resolved
+  const user = useAtom(userData.suspended)
+  
+  return (
+    <div>
+      <h1>{user.name}</h1>
+      <p>{user.email}</p>
+    </div>
+  )
+}
+
+function App() {
+  return (
+    <Suspense fallback={<Skeleton />}>
+      <UserProfile />
+    </Suspense>
+  )
+}
+```
+
+### Error Handling with Suspense
+
+```typescript
+const param = atom(0, 'param')
+const data = computed(async () => {
+  const value = param()
+  if (value < 5) throw new Error('Value too low')
+  return value
+}, 'data')
+
+let calls = 0
+const result = computed(() => {
+  try {
+    calls++
+    return suspense(data)
+  } catch (error) {
+    return error
+  }
+}, 'result')
+
+const track = subscribe(result)
+
+// First call - pending
+console.log(track.mock.lastCall[0]) // → Promise
+
+await wrap(sleep())
+
+// Second call - rejected
+console.log(track.mock.lastCall[0]) // → Error: Value too low
+
+param.set(10)
+await wrap(sleep())
+
+// Third call - fulfilled
+console.log(track.mock.lastCall[0]) // → 10
+```
+
+### Preserve Previous State
+
+```typescript
+const data = computed(
+  async () => {
+    await wrap(sleep(100))
+    return Math.random()
+  },
+  'data'
+).extend(withSuspense({ preserve: true }))
+
+const track = subscribe(data.suspended)
+await wrap(sleep())
+const firstValue = track.mock.lastCall[0]
+
+// Trigger re-fetch
+data()
+
+// With preserve: true, keeps showing first value
+// instead of throwing promise
+const duringFetch = data.suspended()
+console.log(duringFetch === firstValue) // → true
+
+await wrap(sleep())
+const secondValue = track.mock.lastCall[0]
+console.log(secondValue !== firstValue) // → true
+```
+
+## withSuspenseInit
+
+Enables asynchronous initialization for synchronous atoms:
+
+### Unwrap Promise Type
+
+```typescript
+const data = atom(async () => {
+  await sleep()
+  return { value: 42 }
+}).extend(withSuspenseInit())
+
+// Type: Atom<{ value: number }> (not Atom<Promise<{ value: number }>>)
+
+try {
+  data() // Throws promise on first call
+} catch (promise) {
+  await wrap(promise)
+}
+
+console.log(data()) // → { value: 42 }
+```
+
+### Async Initializer Callback
+
+```typescript
+const todos = atom<Todo[]>([]).extend(
+  withSuspenseInit(async () => {
+    const cached = await indexedDB.get('todos')
+    return cached ?? []
+  }),
+  withChangeHook((newState) => {
+    // Sync changes back to storage
+    indexedDB.set('todos', newState)
+  })
+)
+
+// Local-first pattern:
+// 1. Async load from IndexedDB on init
+// 2. Sync operations after init
+// 3. Auto-sync changes back to IndexedDB
+```
+
+### Typed Async Init
+
+```typescript
+const profile = atom<{ username: string; age: number }>({
+  username: 'guest',
+  age: 0,
+}).extend(
+  withSuspenseInit(async () => {
+    const data = await fetchProfile()
+    return data ?? { username: 'guest', age: 0 }
+  })
+)
+```
+
+## settled Helper
+
+Check if a promise is settled and get its value:
+
+```typescript
+import { settled } from '@reatom/core/extensions'
+
+const promise = Promise.resolve(42)
+await promise
+
+const value = settled(promise)
+console.log(value) // → 42
+
+const pending = new Promise(() => {})
+const fallback = settled(pending, 'loading')
+console.log(fallback) // → 'loading'
+```
+
+## suspense Helper
+
+Automatically apply withSuspense and get suspended value:
+
+```typescript
+import { suspense } from '@reatom/core/extensions'
+
+const data = computed(async () => {
+  const res = await fetch('/api/data')
+  return res.json()
+}, 'data')
+
+const result = computed(() => {
+  try {
+    return suspense(data) // Auto-applies withSuspense
+  } catch (promise) {
+    if (promise instanceof Promise) {
+      return undefined // Handle pending
+    }
+    throw promise // Re-throw errors
+  }
+}, 'result')
+```
+
+## Use Cases
+
+### Data Fetching with Suspense
+
+```tsx
+const userId = atom('1', 'userId')
+
+const user = computed(async () => {
+  const id = userId()
+  const res = await fetch(`/api/users/${id}`)
+  return res.json()
+}, 'user').extend(withSuspense())
+
+function UserCard() {
+  const data = useAtom(user.suspended)
+  return <div>{data.name}</div>
+}
+
+function App() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <UserCard />
+    </Suspense>
+  )
+}
+```
+
+### Conditional Suspense
+
+```typescript
+const suspenseAtom = atom(async () => {
+  await wrap(sleep())
+  return true
+}).extend(withSuspenseInit())
+
+const otherSuspenseAtom = atom(async () => {
+  await wrap(sleep())
+  return false
+}).extend(withSuspenseInit())
+
+const suspenseProxyDep = atom(0)
+
+const suspenseProxy = computed(() => {
+  suspenseProxyDep()
+  return suspenseProxyDep() 
+    ? otherSuspenseAtom() 
+    : suspenseAtom()
+})
+
+const component = computed(() => suspenseProxy())
+
+// Helper to retry suspense
+const suspenseRetry = async (cb: () => unknown) => {
+  while (true) {
+    try {
+      return cb()
+    } catch (error) {
+      if (error instanceof Promise) {
+        await wrap(error)
+      } else {
+        throw error
+      }
+    }
+  }
+}
+
+await suspenseRetry(component) // → true
+suspenseProxyDep.set(1)
+await suspenseRetry(component) // → false
+```
+
+### Local-First Pattern
+
+```typescript
+const userSettings = atom(async () => {
+  const stored = await localforage.getItem('settings')
+  return stored ?? defaultSettings
+}).extend(
+  withSuspenseInit(),
+  withChangeHook((settings) => {
+    // Auto-save changes
+    localforage.setItem('settings', settings)
+  })
+)
+
+// Type: Atom<Settings> (not Atom<Promise<Settings>>)
+// After init, all operations are synchronous
+effect(() => {
+  const settings = userSettings()
+  console.log(settings.theme)
+})
+```
+
+### Progressive Enhancement
+
+```tsx
+const data = computed(async () => {
+  await sleep(1000)
+  return { items: [...Array(100)] }
+}, 'data').extend(withSuspense({ preserve: true }))
+
+function DataView() {
+  const value = useAtom(data.suspended)
+  
+  // With preserve: true, old data stays visible
+  // while new data loads
+  return (
+    <div>
+      {value.items.map(item => <Item {...item} />)}
+    </div>
+  )
+}
+```
+
+## Related
+
+- [withSuspenseRetry](/api/extensions/with-suspense-retry) - Auto-retry suspended operations
+- [withAsync](/api/async/with-async) - Async state tracking
+- [withAsyncData](/api/async/with-async-data) - Async data management

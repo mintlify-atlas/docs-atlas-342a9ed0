@@ -1,0 +1,412 @@
+---
+title: withAsyncStatus
+description: Extension that adds detailed status tracking to async atoms or actions
+---
+
+## Overview
+
+The `withAsyncStatus` extension provides fine-grained state information about async operations including current state, first-time flags, and historical tracking. It's typically used internally by `withAsync` when the `status` option is enabled.
+
+This extension enables sophisticated UI states like:
+- Show skeleton only on first load
+- Show spinner on subsequent loads
+- Distinguish between "never loaded" and "loaded but stale"
+- Handle abort scenarios gracefully
+
+## Type Signature
+
+```typescript
+function withAsyncStatus<State = never, InitState = State>(): <
+  Target extends AtomLike & Pick<AsyncExt, 'pending'>
+>(
+  target: Target
+) => { status: AsyncStatusAtom<State, InitState> }
+
+interface AsyncStatusAtom<State, InitState> extends Computed<AsyncStatus<State, InitState>> {
+  reset: Action<[], AsyncStatusNeverPending<State, InitState>>
+}
+```
+
+## Status Properties
+
+The status atom provides the following boolean flags:
+
+### Current State Flags
+
+<ParamField path="isPending" type="boolean">
+  An async operation is currently in progress
+</ParamField>
+
+<ParamField path="isFulfilled" type="boolean">
+  The last completed operation succeeded
+</ParamField>
+
+<ParamField path="isRejected" type="boolean">
+  The last completed operation failed (non-abort errors only)
+</ParamField>
+
+<ParamField path="isSettled" type="boolean">
+  The operation has completed (either fulfilled or rejected)
+</ParamField>
+
+### Historical Tracking Flags
+
+<ParamField path="isFirstPending" type="boolean">
+  This is the first-ever pending state (useful for initial loading UI)
+</ParamField>
+
+<ParamField path="isEverPending" type="boolean">
+  At least one async operation has been started
+</ParamField>
+
+<ParamField path="isEverSettled" type="boolean">
+  At least one async operation has completed
+</ParamField>
+
+<ParamField path="data" type="State | InitState" optional>
+  The data value (only present when used with `withAsyncData`)
+</ParamField>
+
+## Status Types
+
+Each possible status state has a corresponding TypeScript type for precise type narrowing:
+
+### Never Pending State
+
+```typescript
+interface AsyncStatusNeverPending<State, InitState> {
+  isPending: false
+  isFulfilled: false
+  isRejected: false
+  isSettled: false
+  
+  isFirstPending: false
+  isEverPending: false
+  isEverSettled: false
+  
+  data: InitState
+}
+```
+
+### First Pending State
+
+```typescript
+interface AsyncStatusFirstPending<State, InitState> {
+  isPending: true
+  isFulfilled: false
+  isRejected: false
+  isSettled: false
+  
+  isFirstPending: true
+  isEverPending: true
+  isEverSettled: false
+  
+  data: InitState
+}
+```
+
+### Fulfilled State
+
+```typescript
+interface AsyncStatusFulfilled<State, InitState> {
+  isPending: false
+  isFulfilled: true
+  isRejected: false
+  isSettled: true
+  
+  isFirstPending: false
+  isEverPending: true
+  isEverSettled: true
+  
+  data: State
+}
+```
+
+### Rejected State
+
+```typescript
+interface AsyncStatusRejected<State, InitState> {
+  isPending: false
+  isFulfilled: false
+  isRejected: true
+  isSettled: true
+  
+  isFirstPending: false
+  isEverPending: true
+  isEverSettled: true
+  
+  data: State | InitState
+}
+```
+
+## Abort Handling
+
+Aborted operations are treated specially:
+- They don't set `isRejected` to true
+- After an abort, status returns to the last settled state if one exists
+- Otherwise, it goes to a "first aborted" state
+
+## Return Value
+
+<ResponseField name="status" type="AsyncStatusAtom<State, InitState>">
+  Computed atom that tracks the current async status
+  
+  <Expandable title="methods">
+    <ResponseField name="reset" type="Action<[], AsyncStatusNeverPending>">
+      Resets the status atom to initial state, clearing all history flags.
+      Useful when you want to treat the next async call as a "first" call again.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Status Tracking
+
+```typescript
+import { action } from '@reatom/core'
+import { withAsync } from '@reatom/core/async'
+import { wrap } from '@reatom/core/methods'
+
+const fetchUser = action(async (id: string) => {
+  const res = await wrap(fetch(`/api/users/${id}`))
+  return await wrap(res.json())
+}, 'fetchUser').extend(withAsync({ status: true }))
+
+// Initial state
+fetchUser.status() // → { isPending: false, isFirstPending: false, ... }
+
+// Start request
+fetchUser('123')
+fetchUser.status() // → { isPending: true, isFirstPending: true, ... }
+
+// After completion
+await wrap(promise)
+fetchUser.status() // → { isPending: false, isFulfilled: true, isSettled: true, ... }
+```
+
+### Conditional UI Rendering
+
+```typescript
+const fetchData = action(async () => {
+  const res = await wrap(fetch('/api/data'))
+  return await wrap(res.json())
+}, 'fetchData').extend(withAsync({ status: true }))
+
+function renderUI() {
+  const status = fetchData.status()
+  
+  if (status.isFirstPending) {
+    return '<Skeleton />' // Show skeleton only on first load
+  }
+  
+  if (status.isPending) {
+    return '<Spinner />' // Show spinner on subsequent loads
+  }
+  
+  if (status.isRejected) {
+    return '<ErrorMessage />'
+  }
+  
+  if (status.isFulfilled) {
+    return '<DataView />'
+  }
+  
+  return '<EmptyState />'
+}
+```
+
+### Parallel Requests
+
+```typescript
+const fetchData = action(
+  (delay = 10) => sleep(delay),
+  'fetchData'
+).extend(withAsync({ status: true }))
+
+const p1 = fetchData(0)
+console.log(fetchData.status().isFirstPending) // → true
+
+const p2 = fetchData(100)
+console.log(fetchData.status().isFirstPending) // → false (not first anymore)
+
+await wrap(p1)
+console.log(fetchData.status().isPending) // → true (p2 still pending)
+
+await wrap(p2)
+console.log(fetchData.status().isFulfilled) // → true
+```
+
+### Reset During Pending
+
+```typescript
+const fetchData = action(async () => {
+  await wrap(sleep())
+  return 'data'
+}, 'fetchData').extend(withAsync({ status: true }))
+
+fetchData()
+console.log(fetchData.status().isPending) // → true
+
+fetchData.status.reset()
+console.log(fetchData.status().isPending)      // → false
+console.log(fetchData.status().isEverPending)  // → false
+
+await wrap(sleep())
+console.log(fetchData.status().isEverPending)  // → false (reset persists)
+```
+
+### Abort Handling
+
+```typescript
+const fetchData = action(async () => {
+  await sleep()
+  const err = new Error('Aborted')
+  err.name = 'AbortError'
+  throw err
+}, 'fetchData').extend(withAsync({ status: true }))
+
+fetchData().catch(() => {})
+fetchData().catch(() => {})
+await wrap(sleep())
+
+// After abort, status shows "first aborted"
+const status = fetchData.status()
+console.log(status.isPending)      // → false
+console.log(status.isRejected)     // → false (aborts don't set rejected)
+console.log(status.isEverPending)  // → true
+console.log(status.isEverSettled)  // → false
+```
+
+### Restore State After Abort
+
+```typescript
+let shouldAbort = false
+
+const fetchData = action(async () => {
+  if (shouldAbort) {
+    const err = new Error('Aborted')
+    err.name = 'AbortError'
+    throw err
+  }
+  return 'data'
+}, 'fetchData').extend(withAsync({ status: true }))
+
+// First successful call
+await wrap(fetchData())
+console.log(fetchData.status().isFulfilled) // → true
+
+// Trigger abort
+shouldAbort = true
+const p = fetchData()
+p.catch(() => {})
+await wrap(p.catch(() => {}))
+
+// Status restores to previous fulfilled state
+console.log(fetchData.status().isFulfilled) // → true (restored)
+console.log(fetchData.status().isPending)   // → false
+```
+
+### With Data Property
+
+```typescript
+const fetch = action(
+  async (param: number) => param + 1,
+  'fetch'
+).extend(withAsyncData({ status: true }))
+
+const status = fetch.status()
+console.log(status.data) // → undefined
+
+const promise = fetch(5)
+const pendingStatus = fetch.status()
+console.log(pendingStatus.data)      // → undefined
+console.log(pendingStatus.isPending) // → true
+
+await wrap(promise)
+const fulfilledStatus = fetch.status()
+console.log(fulfilledStatus.data)       // → 6
+console.log(fulfilledStatus.isFulfilled) // → true
+
+// Type narrowing works
+if (fulfilledStatus.isFulfilled) {
+  // TypeScript knows data is number (not undefined)
+  const value: number = fulfilledStatus.data
+}
+```
+
+## Use Cases
+
+### Smart Loading States
+
+```typescript
+function LoadingIndicator() {
+  const status = dataResource.status()
+  
+  // First time loading - show full skeleton
+  if (status.isFirstPending) {
+    return <FullSkeleton />
+  }
+  
+  // Subsequent loads - show subtle spinner
+  if (status.isPending && status.isEverSettled) {
+    return <InlineSpinner />
+  }
+  
+  return null
+}
+```
+
+### Error Recovery UI
+
+```typescript
+function DataView() {
+  const status = fetchData.status()
+  
+  if (status.isRejected) {
+    return (
+      <ErrorBoundary>
+        <p>Failed to load data</p>
+        <button onClick={() => fetchData.retry()}>
+          Retry
+        </button>
+      </ErrorBoundary>
+    )
+  }
+  
+  if (!status.isEverSettled) {
+    return <EmptyState message="No data loaded yet" />
+  }
+  
+  return <DataDisplay data={status.data} />
+}
+```
+
+### Progressive Enhancement
+
+```typescript
+function DataTable() {
+  const status = tableData.status()
+  
+  // Show old data while loading new data
+  if (status.isPending && status.data) {
+    return (
+      <div className="loading-overlay">
+        <Table data={status.data} disabled />
+        <Spinner />
+      </div>
+    )
+  }
+  
+  if (status.data) {
+    return <Table data={status.data} />
+  }
+  
+  return <EmptyTable />
+}
+```
+
+## Related
+
+- [withAsync](/api/async/with-async) - Base async state tracking that uses this extension
+- [withAsyncData](/api/async/with-async-data) - Async data management with status support

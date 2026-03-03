@@ -1,0 +1,481 @@
+---
+title: "Actions"
+description: "Logic and side effect containers that orchestrate state updates and async operations"
+---
+
+## Overview
+
+**Actions** are Reatom's way to encapsulate complex logic, perform side effects, and orchestrate multiple state updates. Unlike atoms which store state, actions represent operations that can be executed with parameters and return values.
+
+Actions:
+- Accept parameters when called
+- Can perform side effects (API calls, logging, etc.)
+- Can update multiple atoms
+- Return values like regular functions
+- Track their call history
+- Have atom-like features (subscribe, extend)
+
+## Creating Actions
+
+### Basic Usage
+
+Create an action with a function:
+
+```typescript
+import { action, atom } from '@reatom/core'
+
+const count = atom(0, 'count')
+
+// Simple action
+const increment = action(() => {
+  count.set(prev => prev + 1)
+}, 'increment')
+
+// Action with parameters
+const add = action((amount: number) => {
+  count.set(prev => prev + amount)
+}, 'add')
+
+// Call the actions
+increment() // count is now 1
+add(5) // count is now 6
+```
+
+### Type Signature
+
+```typescript
+interface Action<Params extends any[] = any[], Payload = any> {
+  // Call the action
+  (...params: Params): Payload
+  
+  // Subscribe to action calls
+  subscribe(cb?: (state: ActionState<Params, Payload>) => any): Unsubscribe
+  
+  // Extension system
+  extend: Extend<this>
+  
+  // Internal state tracking calls
+  __reatom: AtomMeta
+}
+
+interface ActionState<Params, Payload> 
+  extends Array<{ params: Params; payload: Payload }> {}
+```
+
+## Actions with Return Values
+
+Actions can return values just like regular functions:
+
+```typescript
+const multiply = action((a: number, b: number) => {
+  return a * b
+}, 'multiply')
+
+const result = multiply(5, 3) // -> 15
+```
+
+## Async Actions
+
+Actions work seamlessly with async operations:
+
+<CodeGroup>
+
+```typescript Basic Async
+import { action, atom } from '@reatom/core'
+
+const userData = atom(null, 'userData')
+const loading = atom(false, 'loading')
+
+const fetchUser = action(async (userId: string) => {
+  loading.set(true)
+  
+  try {
+    const response = await fetch(`/api/users/${userId}`)
+    const data = await response.json()
+    
+    userData.set(data)
+    return data
+  } catch (error) {
+    console.error('Failed to fetch user:', error)
+    throw error
+  } finally {
+    loading.set(false)
+  }
+}, 'fetchUser')
+
+// Use it
+await fetchUser('user123')
+```
+
+```typescript With Error Handling
+const status = atom<'idle' | 'loading' | 'success' | 'error'>('idle', 'status')
+const error = atom<string | null>(null, 'error')
+
+const saveData = action(async (data: any) => {
+  status.set('loading')
+  error.set(null)
+  
+  try {
+    const response = await fetch('/api/save', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    
+    if (!response.ok) throw new Error('Save failed')
+    
+    status.set('success')
+    return response.json()
+  } catch (err) {
+    status.set('error')
+    error.set(err.message)
+    throw err
+  }
+}, 'saveData')
+```
+
+</CodeGroup>
+
+<Tip>
+Use the `wrap` utility for abortable async operations within actions. See the Effects documentation for more details.
+</Tip>
+
+## Subscribing to Actions
+
+Actions track their call history and can be subscribed to:
+
+```typescript
+const logAction = action((message: string) => {
+  console.log(message)
+  return message.length
+}, 'logAction')
+
+// Subscribe to action calls
+const unsub = logAction.subscribe(calls => {
+  console.log('Action called', calls.length, 'times')
+  calls.forEach(({ params, payload }) => {
+    console.log('Params:', params, 'Payload:', payload)
+  })
+})
+// Immediately logs: "Action called 0 times"
+
+logAction('Hello')
+// Logs: 
+// "Hello"
+// "Action called 1 times"
+// "Params: ['Hello'] Payload: 5"
+
+logAction('World')
+// Logs:
+// "World"
+// "Action called 2 times"
+// "Params: ['Hello'] Payload: 5"
+// "Params: ['World'] Payload: 5"
+```
+
+<Note>
+Action call history is automatically cleared after each transaction cycle. This prevents memory leaks.
+</Note>
+
+## Orchestrating State Updates
+
+Actions excel at coordinating updates across multiple atoms:
+
+```typescript
+const firstName = atom('', 'firstName')
+const lastName = atom('', 'lastName')
+const email = atom('', 'email')
+const isValid = atom(false, 'isValid')
+
+const updateUser = action((data: {
+  firstName: string
+  lastName: string
+  email: string
+}) => {
+  // Update multiple atoms in one action
+  firstName.set(data.firstName)
+  lastName.set(data.lastName)
+  email.set(data.email)
+  
+  // Validate
+  const valid = data.firstName && data.lastName && data.email.includes('@')
+  isValid.set(valid)
+  
+  return valid
+}, 'updateUser')
+
+const isUserValid = updateUser({
+  firstName: 'John',
+  lastName: 'Doe',
+  email: 'john@example.com'
+}) // -> true
+```
+
+## Action Composition
+
+Actions can call other actions:
+
+```typescript
+const count = atom(0, 'count')
+
+const increment = action(() => {
+  count.set(prev => prev + 1)
+}, 'increment')
+
+const decrement = action(() => {
+  count.set(prev => prev - 1)
+}, 'decrement')
+
+const reset = action(() => {
+  count.set(0)
+}, 'reset')
+
+// Composed action
+const incrementTwice = action(() => {
+  increment()
+  increment()
+}, 'incrementTwice')
+
+// Complex composition
+const resetAndIncrement = action((amount: number) => {
+  reset()
+  for (let i = 0; i < amount; i++) {
+    increment()
+  }
+  return count()
+}, 'resetAndIncrement')
+```
+
+## Reading Atoms in Actions
+
+Actions can read atom values to make decisions:
+
+```typescript
+const count = atom(0, 'count')
+const maxCount = atom(10, 'maxCount')
+
+const incrementIfAllowed = action(() => {
+  const current = count()
+  const max = maxCount()
+  
+  if (current < max) {
+    count.set(current + 1)
+    return true
+  }
+  
+  console.log('Maximum reached!')
+  return false
+}, 'incrementIfAllowed')
+```
+
+## Action Middleware
+
+Extend actions with middleware to add custom behavior:
+
+```typescript
+import { action, withActionMiddleware } from '@reatom/core'
+
+// Create a logging middleware
+const withLogging = withActionMiddleware((action) => {
+  return (next, ...params) => {
+    console.log(`[${action.name}] called with:`, params)
+    const result = next(...params)
+    console.log(`[${action.name}] returned:`, result)
+    return result
+  }
+})
+
+const add = action((a: number, b: number) => a + b, 'add')
+  .extend(withLogging)
+
+add(2, 3)
+// Logs: "[add] called with: [2, 3]"
+// Logs: "[add] returned: 5"
+```
+
+## Common Patterns
+
+### Form Submission
+
+```typescript
+const formData = atom({ email: '', password: '' }, 'formData')
+const submitting = atom(false, 'submitting')
+const errors = atom<string[]>([], 'errors')
+
+const submitForm = action(async () => {
+  const data = formData()
+  
+  // Validation
+  const validationErrors = []
+  if (!data.email.includes('@')) {
+    validationErrors.push('Invalid email')
+  }
+  if (data.password.length < 8) {
+    validationErrors.push('Password too short')
+  }
+  
+  if (validationErrors.length > 0) {
+    errors.set(validationErrors)
+    return false
+  }
+  
+  // Submit
+  submitting.set(true)
+  errors.set([])
+  
+  try {
+    await fetch('/api/submit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    return true
+  } catch (err) {
+    errors.set(['Submission failed'])
+    return false
+  } finally {
+    submitting.set(false)
+  }
+}, 'submitForm')
+```
+
+### Optimistic Updates
+
+```typescript
+const todos = atom([], 'todos')
+
+const addTodo = action(async (text: string) => {
+  // Optimistic update
+  const tempId = Date.now()
+  const tempTodo = { id: tempId, text, synced: false }
+  todos.set(prev => [...prev, tempTodo])
+  
+  try {
+    // Sync with server
+    const response = await fetch('/api/todos', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    })
+    const serverTodo = await response.json()
+    
+    // Replace temp with real
+    todos.set(prev => 
+      prev.map(t => t.id === tempId 
+        ? { ...serverTodo, synced: true } 
+        : t
+      )
+    )
+    
+    return serverTodo
+  } catch (error) {
+    // Rollback on failure
+    todos.set(prev => prev.filter(t => t.id !== tempId))
+    throw error
+  }
+}, 'addTodo')
+```
+
+### Debounced Search
+
+```typescript
+const searchQuery = atom('', 'searchQuery')
+const searchResults = atom([], 'searchResults')
+const searching = atom(false, 'searching')
+
+let searchTimeout: any
+
+const search = action(async (query: string) => {
+  searchQuery.set(query)
+  
+  // Clear previous timeout
+  clearTimeout(searchTimeout)
+  
+  if (!query) {
+    searchResults.set([])
+    return
+  }
+  
+  // Debounce
+  await new Promise(resolve => {
+    searchTimeout = setTimeout(resolve, 300)
+  })
+  
+  searching.set(true)
+  try {
+    const response = await fetch(`/api/search?q=${query}`)
+    const results = await response.json()
+    searchResults.set(results)
+  } finally {
+    searching.set(false)
+  }
+}, 'search')
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use actions for side effects">
+    Keep side effects in actions, not in computed values:
+    
+    ```typescript
+    // Good - side effect in action
+    const saveData = action(async (data) => {
+      await fetch('/api/save', { method: 'POST', body: JSON.stringify(data) })
+    })
+    
+    // Avoid - side effect in computed
+    const autoSave = computed(() => {
+      fetch('/api/save', { method: 'POST' }) // Don't do this!
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Name actions as verbs">
+    Action names should describe what they do:
+    
+    ```typescript
+    // Good
+    const fetchUser = action(...)
+    const saveSettings = action(...)
+    const deleteItem = action(...)
+    
+    // Avoid
+    const user = action(...)
+    const settings = action(...)
+    ```
+  </Accordion>
+
+  <Accordion title="Return meaningful values">
+    Return values that indicate success or provide results:
+    
+    ```typescript
+    // Good - returns success status
+    const save = action(async (data) => {
+      try {
+        await api.save(data)
+        return { success: true }
+      } catch (error) {
+        return { success: false, error }
+      }
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Atom" icon="atom" href="/core/atom">
+    Store mutable state
+  </Card>
+  
+  <Card title="Computed" icon="function" href="/core/computed">
+    Derive state automatically
+  </Card>
+  
+  <Card title="Effects" icon="wand-magic-sparkles" href="/core/effects">
+    Run reactive side effects
+  </Card>
+  
+  <Card title="Extend" icon="puzzle-piece" href="/core/extend">
+    Customize action behavior
+  </Card>
+</CardGroup>

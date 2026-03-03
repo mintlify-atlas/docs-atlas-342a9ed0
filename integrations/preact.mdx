@@ -1,0 +1,459 @@
+---
+title: Preact Integration
+description: Use Reatom state management with Preact applications, including automatic tracking and signal interop
+---
+
+The `@reatom/preact` package provides Preact integration for Reatom with automatic dependency tracking, Preact Signals interoperability, and optimized components.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @reatom/preact @reatom/core
+```
+
+```bash yarn
+yarn add @reatom/preact @reatom/core
+```
+
+```bash pnpm
+pnpm add @reatom/preact @reatom/core
+```
+</CodeGroup>
+
+<Note>
+Optional: Install `@preact/signals` and `@preact/signals-core` for Preact Signals integration.
+</Note>
+
+## Setup Options
+
+You have two setup options depending on your needs:
+
+### Option 1: Manual Setup
+
+Wrap your application with the Reatom context provider:
+
+```tsx
+import { render } from 'preact'
+import { createContext } from '@reatom/core'
+import { reatomContext } from '@reatom/preact'
+import App from './App'
+
+const ctx = createContext()
+
+render(
+  <reatomContext.Provider value={ctx}>
+    <App />
+  </reatomContext.Provider>,
+  document.getElementById('app')!
+)
+```
+
+### Option 2: Automatic Tracking
+
+Import the auto module to automatically wrap all components:
+
+```tsx
+import '@reatom/preact/auto'
+import { render } from 'preact'
+import App from './App'
+
+// All components will automatically track atoms
+render(<App />, document.getElementById('app')!)
+```
+
+With automatic tracking, you can use atoms directly in components without any hooks or wrappers.
+
+## Core Components
+
+### reatomComponent
+
+Create components with automatic atom dependency tracking:
+
+```tsx
+import { atom } from '@reatom/core'
+import { reatomComponent } from '@reatom/preact'
+
+const countAtom = atom(0, 'count')
+
+const Counter = reatomComponent(() => {
+  const count = countAtom()
+  
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={() => countAtom.set(count + 1)}>
+        Increment
+      </button>
+    </div>
+  )
+}, 'Counter')
+```
+
+**Benefits:**
+- Automatic subscription management
+- Fine-grained reactivity
+- No hooks needed
+- Suspense support
+
+### reatomFactoryComponent
+
+Create components with initialization logic:
+
+```tsx
+import { atom } from '@reatom/core'
+import { reatomFactoryComponent } from '@reatom/preact'
+
+interface TimerProps {
+  initialTime: number
+}
+
+const Timer = reatomFactoryComponent<TimerProps>(
+  (initProps) => {
+    // Initialization - runs once
+    const timeAtom = atom(initProps.initialTime, 'time')
+    
+    const start = () => {
+      setInterval(() => {
+        timeAtom.set((t) => t + 1)
+      }, 1000)
+    }
+    
+    // Render function - called on every update
+    return (props) => {
+      const time = timeAtom()
+      
+      return (
+        <div>
+          <p>Time: {time}s</p>
+          <button onClick={start}>Start</button>
+        </div>
+      )
+    }
+  },
+  'Timer'
+)
+```
+
+## Preact Signals Integration
+
+Reatom atoms can be converted to and from Preact Signals for seamless interoperability.
+
+### toPreact
+
+Convert Reatom atoms to Preact signals:
+
+```tsx
+import { atom, computed } from '@reatom/core'
+import { toPreact } from '@reatom/preact/signal'
+
+const countAtom = atom(0, 'count')
+const countSignal = toPreact(countAtom)
+
+// Use in JSX
+function Counter() {
+  return (
+    <div>
+      <p>Count: {countSignal}</p>
+      <button onClick={() => countSignal.value++}>Increment</button>
+    </div>
+  )
+}
+```
+
+**Features:**
+- Lazy subscription (only subscribes when signal is accessed)
+- Writable signals for writable atoms
+- Read-only signals for computed atoms
+- Cached (calling `toPreact` multiple times returns the same signal)
+
+### withPreact Extension
+
+Add a `.preact` property to atoms:
+
+```tsx
+import { atom } from '@reatom/core'
+import { withPreact } from '@reatom/preact/signal'
+
+const countAtom = atom(0, 'count').extend(withPreact())
+
+function Counter() {
+  return (
+    <div>
+      <p>Count: {countAtom.preact}</p>
+      <button onClick={() => countAtom.preact.value++}>Increment</button>
+    </div>
+  )
+}
+```
+
+**Global Extension:**
+
+You can apply this to all atoms automatically:
+
+```ts
+// setup.ts
+import { addGlobalExtension } from '@reatom/core'
+import { withPreact } from '@reatom/preact/signal'
+
+addGlobalExtension(withPreact())
+
+// Add TypeScript declarations
+declare module '@reatom/core' {
+  interface Atom<State> extends PreactExt<State> {}
+  interface Computed<State> extends PreactReadonlyExt<State> {}
+}
+```
+
+## Form Binding
+
+### bindField
+
+Bind form fields to Reatom atoms:
+
+```tsx
+import { fieldAtom } from '@reatom/core'
+import { bindField } from '@reatom/preact'
+import { reatomComponent } from '@reatom/preact'
+
+const emailField = fieldAtom('', 'email')
+const passwordField = fieldAtom('', 'password')
+
+const LoginForm = reatomComponent(() => {
+  const emailProps = bindField(emailField)
+  const passwordProps = bindField(passwordField)
+  
+  return (
+    <form>
+      <input type="email" {...emailProps} />
+      {emailProps.error && <span>{emailProps.error}</span>}
+      
+      <input type="password" {...passwordProps} />
+      {passwordProps.error && <span>{passwordProps.error}</span>}
+      
+      <button type="submit">Login</button>
+    </form>
+  )
+}, 'LoginForm')
+```
+
+The `bindField` helper returns:
+- `value` or `checked`: Current field value
+- `onChange`: Change handler
+- `onBlur`: Blur handler
+- `onFocus`: Focus handler
+- `error`: Validation error message
+
+## Hooks
+
+### useFrame
+
+Access the current Reatom frame:
+
+```tsx
+import { useFrame } from '@reatom/preact'
+import { wrap } from '@reatom/core'
+
+function MyComponent() {
+  const frame = useFrame()
+  
+  const handleClick = () => {
+    wrap(() => {
+      // Your logic here
+    }, frame)
+  }
+  
+  return <button onClick={handleClick}>Click me</button>
+}
+```
+
+### useWrap
+
+Create stable callbacks that execute in the Reatom context:
+
+```tsx
+import { atom } from '@reatom/core'
+import { useWrap } from '@reatom/preact'
+import { reatomComponent } from '@reatom/preact'
+
+const countAtom = atom(0, 'count')
+
+const Counter = reatomComponent(() => {
+  const count = countAtom()
+  
+  const increment = useWrap(() => {
+    countAtom.set(countAtom() + 1)
+  })
+  
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={increment}>Increment</button>
+    </div>
+  )
+}, 'Counter')
+```
+
+## Complete Examples
+
+### Todo List with Auto Tracking
+
+```tsx
+import '@reatom/preact/auto'
+import { render } from 'preact'
+import { atom, computed } from '@reatom/core'
+
+interface Todo {
+  id: number
+  text: string
+  completed: boolean
+}
+
+const todosAtom = atom<Todo[]>([], 'todos')
+const filterAtom = atom<'all' | 'active' | 'completed'>('all', 'filter')
+
+const filteredTodosAtom = computed(() => {
+  const todos = todosAtom()
+  const filter = filterAtom()
+  
+  if (filter === 'active') return todos.filter(t => !t.completed)
+  if (filter === 'completed') return todos.filter(t => t.completed)
+  return todos
+}, 'filteredTodos')
+
+function TodoApp() {
+  // Atoms are tracked automatically!
+  const todos = filteredTodosAtom()
+  const filter = filterAtom()
+  
+  const addTodo = (text: string) => {
+    todosAtom.set([
+      ...todosAtom(),
+      { id: Date.now(), text, completed: false }
+    ])
+  }
+  
+  const toggleTodo = (id: number) => {
+    todosAtom.set(
+      todosAtom().map(todo =>
+        todo.id === id ? { ...todo, completed: !todo.completed } : todo
+      )
+    )
+  }
+  
+  return (
+    <div>
+      <h1>Todos</h1>
+      <div>
+        <button onClick={() => filterAtom.set('all')}>All</button>
+        <button onClick={() => filterAtom.set('active')}>Active</button>
+        <button onClick={() => filterAtom.set('completed')}>Completed</button>
+      </div>
+      <ul>
+        {todos.map(todo => (
+          <li key={todo.id}>
+            <input
+              type="checkbox"
+              checked={todo.completed}
+              onChange={() => toggleTodo(todo.id)}
+            />
+            {todo.text}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+render(<TodoApp />, document.getElementById('app')!)
+```
+
+### Using Preact Signals
+
+```tsx
+import { render } from 'preact'
+import { atom, computed } from '@reatom/core'
+import { toPreact } from '@reatom/preact/signal'
+import { reatomContext } from '@reatom/preact'
+import { createContext } from '@reatom/core'
+
+const ctx = createContext()
+
+const firstNameAtom = atom('John', 'firstName')
+const lastNameAtom = atom('Doe', 'lastName')
+const fullNameAtom = computed(
+  () => `${firstNameAtom()} ${lastNameAtom()}`,
+  'fullName'
+)
+
+const firstName = toPreact(firstNameAtom)
+const lastName = toPreact(lastNameAtom)
+const fullName = toPreact(fullNameAtom)
+
+function NameForm() {
+  return (
+    <reatomContext.Provider value={ctx}>
+      <div>
+        <input value={firstName} onInput={e => firstName.value = e.currentTarget.value} />
+        <input value={lastName} onInput={e => lastName.value = e.currentTarget.value} />
+        <p>Full name: {fullName}</p>
+      </div>
+    </reatomContext.Provider>
+  )
+}
+
+render(<NameForm />, document.getElementById('app')!)
+```
+
+## TypeScript Support
+
+Full TypeScript support with proper type inference:
+
+```tsx
+import { atom } from '@reatom/core'
+import { reatomComponent } from '@reatom/preact'
+import { toPreact } from '@reatom/preact/signal'
+import type { Signal, ReadonlySignal } from '@preact/signals-core'
+
+interface User {
+  id: number
+  name: string
+}
+
+const userAtom = atom<User | null>(null, 'user')
+const userSignal: Signal<User | null> = toPreact(userAtom)
+
+const UserProfile = reatomComponent<{ showEmail: boolean }>((props) => {
+  const user = userAtom()
+  
+  if (!user) return <div>No user</div>
+  
+  return <div>{user.name}</div>
+}, 'UserProfile')
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Choose your setup">
+    Use automatic tracking (`@reatom/preact/auto`) for simpler code, or manual setup for more control.
+  </Step>
+  
+  <Step title="Use reatomComponent for atom-heavy components">
+    Components that read many atoms benefit from automatic tracking and fine-grained updates.
+  </Step>
+  
+  <Step title="Leverage Preact Signals when needed">
+    Use `toPreact` for seamless integration with existing Preact Signals code.
+  </Step>
+  
+  <Step title="Cache signal conversions">
+    `toPreact` caches results, so it's safe to call multiple times with the same atom.
+  </Step>
+</Steps>
+
+## Next Steps
+
+- Learn about [Core Concepts](/core/atom) for atoms and state management
+- Explore [Formshttps://github.com/reatom/reatom/tree/main/packages for advanced form handling
+- Check out [Asynchttps://github.com/reatom/reatom/tree/main/packages for asynchronous state

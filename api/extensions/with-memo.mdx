@@ -1,0 +1,374 @@
+---
+title: withMemo
+description: Prevents unnecessary updates by memoizing atom state with equality checks
+---
+
+## Overview
+
+The `withMemo` extension prevents unnecessary state updates by comparing the new state with the previous state using an equality function. If the states are equal, the previous reference is kept, preventing downstream computations and subscriptions from re-running.
+
+This is particularly useful for:
+- Preventing re-renders when objects have the same values but different references
+- Optimizing performance in complex computed chains
+- Controlling update propagation based on semantic equality
+
+## Type Signature
+
+```typescript
+function withMemo<Target extends AtomLike>(
+  isEqual?: (prevState: AtomState<Target>, nextState: AtomState<Target>) => boolean
+): Ext<Target>
+```
+
+## Parameters
+
+<ParamField path="isEqual" type="function" optional>
+  Function to determine if two states are equal. Defaults to shallow equality check.
+  
+  **Parameters:**
+  - `prevState`: The previous state
+  - `nextState`: The new state
+  
+  **Returns:** `true` if states are considered equal, `false` otherwise
+  
+  **Default:** `isShallowEqual` - Compares object properties and array elements by reference
+</ParamField>
+
+## Return Value
+
+Returns an extension that memoizes the atom's state.
+
+## Examples
+
+### Shallow Memoization (Default)
+
+```typescript
+import { atom } from '@reatom/core'
+import { withMemo } from '@reatom/core/extensions'
+
+const data = atom({ a: 1 }, 'data').extend(withMemo())
+
+const state1 = data()
+data.set({ a: 1 })
+const state2 = data()
+
+console.log(state1 === state2) // → true (same reference kept)
+
+data.set({ a: 1, b: undefined })
+const state3 = data()
+console.log(state1 === state3) // → false (different keys)
+```
+
+### Prevent Array Recreations
+
+```typescript
+const items = atom([{ id: 1 }], 'items').extend(withMemo())
+
+const state1 = items()
+const firstItem = state1[0]!
+
+items.set([firstItem]) // Same item reference
+const state2 = items()
+
+console.log(state1 === state2) // → true
+
+items.set([{ id: 1 }]) // New object
+const state3 = items()
+
+console.log(state1 === state3) // → false
+```
+
+### Deep Equality
+
+```typescript
+import { isDeepEqual } from '@reatom/core/utils'
+
+const data = atom([{ a: 1 }], 'data').extend(
+  withMemo(isDeepEqual)
+)
+
+const state1 = data()
+items.set([state1[0]!]) // Same reference
+const state2 = data()
+console.log(state1 === state2) // → true
+
+items.set([{ a: 1 }]) // New object, same values
+const state3 = data()
+console.log(state1 === state3) // → true (deep equal!)
+```
+
+### Prevent Computed Recalculation
+
+```typescript
+const data = atom([{ a: 1 }], 'data').extend(
+  withMemo(isDeepEqual)
+)
+
+const computedFn = vi.fn(() => data()[0]?.a)
+const result = computed(computedFn, 'result')
+result.subscribe()
+
+console.log(computedFn).toBeCalledTimes(1)
+
+data.set([{ a: 1 }]) // Same value
+notify()
+console.log(computedFn).toBeCalledTimes(1) // Not called again!
+
+data.set([{ a: 2 }]) // Different value
+notify()
+console.log(computedFn).toBeCalledTimes(2) // Called again
+```
+
+### Prevent Subscription Updates
+
+```typescript
+const data = atom([{ a: 1 }], 'data').extend(
+  withMemo(isDeepEqual)
+)
+
+const track = subscribe(data)
+console.log(track).toBeCalledTimes(1)
+
+data.set([{ a: 1 }]) // Same value
+notify()
+console.log(track).toBeCalledTimes(1) // Not called!
+
+data.set([{ a: 2 }]) // Different value
+notify()
+console.log(track).toBeCalledTimes(2) // Called!
+```
+
+### Custom Equality Function
+
+```typescript
+interface User {
+  id: number
+  name: string
+  lastSeen: number
+}
+
+const user = atom<User>(
+  { id: 1, name: 'John', lastSeen: Date.now() },
+  'user'
+).extend(
+  withMemo((prev, next) => {
+    // Only care about id and name, ignore lastSeen
+    return prev.id === next.id && prev.name === next.name
+  })
+)
+
+const state1 = user()
+user.set({ id: 1, name: 'John', lastSeen: Date.now() })
+const state2 = user()
+
+console.log(state1 === state2) // → true (lastSeen ignored)
+
+user.set({ id: 1, name: 'Jane', lastSeen: Date.now() })
+const state3 = user()
+
+console.log(state2 === state3) // → false (name changed)
+```
+
+### Numeric Tolerance
+
+```typescript
+const position = atom({ x: 0, y: 0 }, 'position').extend(
+  withMemo((prev, next) => {
+    const tolerance = 0.01
+    return (
+      Math.abs(prev.x - next.x) < tolerance &&
+      Math.abs(prev.y - next.y) < tolerance
+    )
+  })
+)
+
+const state1 = position()
+position.set({ x: 0.005, y: 0.005 })
+const state2 = position()
+
+console.log(state1 === state2) // → true (within tolerance)
+
+position.set({ x: 0.1, y: 0.1 })
+const state3 = position()
+
+console.log(state2 === state3) // → false (exceeds tolerance)
+```
+
+## Use Cases
+
+### Optimize Form State
+
+```typescript
+const formData = atom(
+  { name: '', email: '', phone: '' },
+  'formData'
+).extend(withMemo())
+
+// Updates with same values won't trigger re-renders
+formData.set({ name: 'John', email: 'john@example.com', phone: '' })
+const ref1 = formData()
+
+formData.set({ name: 'John', email: 'john@example.com', phone: '' })
+const ref2 = formData()
+
+console.log(ref1 === ref2) // → true
+```
+
+### Prevent List Re-renders
+
+```typescript
+const items = atom<Item[]>([], 'items').extend(
+  withMemo(isDeepEqual)
+)
+
+const ItemList = () => {
+  const list = useAtom(items)
+  // Won't re-render if items have same IDs and values
+  return list.map(item => <ItemView key={item.id} {...item} />)
+}
+```
+
+### Filter Updates by Significance
+
+```typescript
+interface Metrics {
+  cpu: number
+  memory: number
+  timestamp: number
+}
+
+const metrics = atom<Metrics>(
+  { cpu: 0, memory: 0, timestamp: Date.now() },
+  'metrics'
+).extend(
+  withMemo((prev, next) => {
+    // Ignore timestamp and small fluctuations
+    const cpuDiff = Math.abs(prev.cpu - next.cpu)
+    const memDiff = Math.abs(prev.memory - next.memory)
+    return cpuDiff < 5 && memDiff < 100
+  })
+)
+```
+
+### Cached API Responses
+
+```typescript
+const apiCache = atom<Map<string, Response>>(new Map(), 'apiCache').extend(
+  withMemo((prev, next) => {
+    // Custom Map equality check
+    if (prev.size !== next.size) return false
+    for (const [key, value] of prev) {
+      if (next.get(key) !== value) return false
+    }
+    return true
+  })
+)
+```
+
+### Stable References for React
+
+```typescript
+const config = atom(
+  { apiUrl: '/api', timeout: 5000 },
+  'config'
+).extend(withMemo())
+
+function useConfig() {
+  const cfg = useAtom(config)
+  
+  // Stable reference prevents useEffect from re-running
+  useEffect(() => {
+    initializeWithConfig(cfg)
+  }, [cfg])
+}
+```
+
+### Normalized Data
+
+```typescript
+interface NormalizedState {
+  entities: Record<string, Entity>
+  ids: string[]
+}
+
+const normalized = atom<NormalizedState>(
+  { entities: {}, ids: [] },
+  'normalized'
+).extend(
+  withMemo((prev, next) => {
+    // Deep compare both entities and ids
+    return (
+      isDeepEqual(prev.entities, next.entities) &&
+      isDeepEqual(prev.ids, next.ids)
+    )
+  })
+)
+```
+
+## Performance Considerations
+
+### Shallow vs Deep Equality
+
+```typescript
+// Shallow (fast, works for flat objects)
+const shallowData = atom({ a: 1, b: 2 }).extend(withMemo())
+
+// Deep (slower, works for nested objects)
+const deepData = atom({ nested: { a: 1 } }).extend(
+  withMemo(isDeepEqual)
+)
+```
+
+### When NOT to Use
+
+```typescript
+// Don't use for primitive values (unnecessary)
+const count = atom(0) // No need for withMemo
+
+// Don't use if state always changes
+const timestamp = atom(Date.now()) // Will always be different
+
+// Don't use if the equality check is expensive
+const hugeArray = atom([...Array(10000)]).extend(
+  withMemo(isDeepEqual) // May be slower than just updating
+)
+```
+
+## Equality Functions
+
+### Built-in Options
+
+```typescript
+import { isShallowEqual, isDeepEqual } from '@reatom/core/utils'
+
+// Shallow (default)
+const shallow = atom({}).extend(withMemo())
+const shallowExplicit = atom({}).extend(withMemo(isShallowEqual))
+
+// Deep
+const deep = atom({}).extend(withMemo(isDeepEqual))
+
+// Reference equality
+const reference = atom({}).extend(withMemo((a, b) => a === b))
+```
+
+### Custom Implementations
+
+```typescript
+// ID-based equality
+const byId = (prev: Item, next: Item) => prev.id === next.id
+
+// Key subset equality
+const byKeys = (keys: string[]) => (prev: any, next: any) =>
+  keys.every(key => prev[key] === next[key])
+
+// JSON string comparison (careful with performance)
+const byJson = (prev: any, next: any) =>
+  JSON.stringify(prev) === JSON.stringify(next)
+```
+
+## Related
+
+- [withComputed](/api/extensions/with-computed) - Add computed behavior
+- [isShallowEqual](/api/utils/is-shallow-equal) - Shallow equality checker
+- [isDeepEqual](/api/utils/is-deep-equal) - Deep equality checker

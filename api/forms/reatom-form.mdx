@@ -1,0 +1,370 @@
+---
+title: 'reatomForm'
+description: 'Create reactive forms with validation, submit handling, and field management'
+---
+
+## Overview
+
+`reatomForm` creates a reactive form with built-in validation, submit handling, and comprehensive field management. It wraps `reatomFieldSet` and adds form-level features like submit actions, schema validation, and submitted state tracking.
+
+## Type Signature
+
+```typescript
+function reatomForm<
+  InitState extends FieldSetInitState,
+  SchemaState = unknown,
+  SubmitReturn = unknown,
+  SubmitParams extends any[] = any,
+>(
+  initState: InitState | ((name: string) => InitState),
+  options?: FormOptionsWithSchema | FormOptionsWithoutSchema
+): FormAtom<InitState, SchemaState, SubmitReturn, SubmitParams>
+```
+
+## Parameters
+
+<ParamField path="initState" type="InitState | ((name: string) => InitState)" required>
+  Initial form state or factory function. Can include:
+  - Primitive values (automatically converted to `reatomField`)
+  - `reatomField` instances with custom options
+  - `reatomFieldArray` instances for dynamic lists
+  - Nested objects for complex form structures
+</ParamField>
+
+<ParamField path="options" type="FormOptions">
+  Form configuration options
+
+  <Expandable title="properties">
+    <ParamField path="name" type="string">
+      Debug name for the form and related atoms
+    </ParamField>
+
+    <ParamField path="schema" type="StandardSchemaV1">
+      Validation schema (Zod, Valibot, ArkType, etc.) following Standard Schema specification.
+      When provided, `onSubmit` receives validated and transformed output.
+    </ParamField>
+
+    <ParamField path="onSubmit" type="(state, ...params) => SubmitReturn | Promise<SubmitReturn>">
+      Callback to process valid form data. Receives validated state (from schema if provided) and any additional submit parameters.
+    </ParamField>
+
+    <ParamField path="validateBeforeSubmit" type="(state) => any">
+      Custom validation callback that runs before submit, after schema validation.
+      Throw an error to prevent submission.
+    </ParamField>
+
+    <ParamField path="resetOnSubmit" type="boolean" default="false">
+      Whether to reset the form after successful submission
+    </ParamField>
+
+    <ParamField path="validateOnChange" type="boolean" default="false">
+      Default for all fields: trigger validation on every change
+    </ParamField>
+
+    <ParamField path="validateOnBlur" type="boolean" default="false">
+      Default for all fields: trigger validation when field loses focus
+    </ParamField>
+
+    <ParamField path="validateOnConnect" type="boolean" default="false">
+      Default for all fields: trigger validation when field is first connected
+    </ParamField>
+
+    <ParamField path="keepErrorOnChange" type="boolean" default="!validateOnChange">
+      Default for all fields: preserve validation errors when field value changes
+    </ParamField>
+
+    <ParamField path="keepErrorDuringValidating" type="boolean" default="false">
+      Default for all fields: keep previous error visible during async validation
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Value
+
+<ResponseField name="FormAtom" type="FormAtom<InitState, SchemaState, SubmitReturn, SubmitParams>">
+  Form atom with the following properties:
+
+  <Expandable title="properties">
+    <ResponseField name="fields" type="FieldsAtomize<InitState>">
+      Object containing all form fields, automatically converted from initial state
+    </ResponseField>
+
+    <ResponseField name="submit" type="SubmitAction<SubmitParams, SubmitReturn>">
+      Async submit action with the following properties:
+      - `submit()` - Execute form submission
+      - `submit.data()` - Last successful result
+      - `submit.error()` - Last error
+      - `submit.pending()` - Number of pending submissions
+      - `submit.abort()` - Abort current submission
+    </ResponseField>
+
+    <ResponseField name="validation" type="Computed<FieldSetValidation>">
+      Aggregated validation state from all fields with:
+      - `validation()` - Current validation state
+      - `validation.trigger()` - Trigger form validation
+      - `validation.triggerSchemaValidation()` - Trigger schema validation only (when schema provided)
+    </ResponseField>
+
+    <ResponseField name="submitted" type="Atom<boolean>">
+      Whether the form has been successfully submitted
+    </ResponseField>
+
+    <ResponseField name="reset" type="Action">
+      Reset form to initial state or provided state
+    </ResponseField>
+
+    <ResponseField name="focus" type="Computed<FocusState>">
+      Aggregated focus state: `{ active, dirty, touched }`
+    </ResponseField>
+
+    <ResponseField name="fieldsList" type="Computed<FieldAtom[]>">
+      Array of all field atoms in the form
+    </ResponseField>
+
+    <ResponseField name="fieldArraysList" type="Computed<FieldArrayAtom[]>">
+      Array of all field array atoms in the form
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Form
+
+```typescript
+import { reatomForm } from '@reatom/framework'
+
+const loginForm = reatomForm({
+  email: '',
+  password: '',
+})
+
+// Access fields
+loginForm.fields.email.change('user@example.com')
+loginForm.fields.password.change('secret123')
+
+// Check form state
+console.log(loginForm.fields.email.value()) // 'user@example.com'
+console.log(loginForm.focus().dirty) // true
+```
+
+### Form with Schema Validation
+
+```typescript
+import { reatomForm } from '@reatom/framework'
+import { z } from 'zod'
+
+const registrationForm = reatomForm(
+  {
+    email: '',
+    age: 0,
+    password: '',
+  },
+  {
+    schema: z.object({
+      email: z.string().email('Invalid email'),
+      age: z.number().min(18, 'Must be 18 or older'),
+      password: z.string().min(8, 'Password too short'),
+    }),
+    onSubmit: async (state) => {
+      // state is typed as { email: string; age: number; password: string }
+      const response = await fetch('/api/register', {
+        method: 'POST',
+        body: JSON.stringify(state),
+      })
+      return response.json()
+    },
+  }
+)
+
+// Submit with error handling
+await wrap(registrationForm.submit()).catch(noop)
+if (registrationForm.submit.error()) {
+  console.error('Submission failed:', registrationForm.submit.error())
+}
+```
+
+### Field-Level Validation
+
+```typescript
+import { reatomForm, reatomField } from '@reatom/framework'
+
+const form = reatomForm({
+  username: reatomField('', {
+    validate: ({ value }) => {
+      if (value.length < 3) return 'Username too short'
+      if (!/^[a-zA-Z0-9_]+$/.test(value)) return 'Invalid characters'
+    },
+    validateOnChange: true,
+  }),
+  email: reatomField('', {
+    validate: async ({ value }) => {
+      // Async validation
+      const response = await fetch(`/api/check-email?email=${value}`)
+      const { available } = await response.json()
+      if (!available) throw new Error('Email already taken')
+    },
+    validateOnBlur: true,
+  }),
+})
+```
+
+### Dynamic Field Arrays
+
+```typescript
+import { reatomForm, reatomField, reatomFieldArray } from '@reatom/framework'
+
+const todoForm = reatomForm({
+  title: '',
+  items: reatomFieldArray({
+    initState: ['Initial task'],
+    create: (text: string) => reatomField(text),
+  }),
+})
+
+// Add items
+todoForm.fields.items.create('Buy groceries')
+todoForm.fields.items.create('Walk the dog')
+
+// Access items
+const items = todoForm.fields.items.array()
+console.log(items.length) // 3
+console.log(items[0].value()) // 'Initial task'
+
+// Remove items
+todoForm.fields.items.clear()
+```
+
+### Submit Flow
+
+```typescript
+import { reatomForm } from '@reatom/framework'
+import { z } from 'zod'
+
+const form = reatomForm(
+  { email: '', message: '' },
+  {
+    schema: z.object({
+      email: z.string().email(),
+      message: z.string().min(10),
+    }),
+    validateBeforeSubmit: (state) => {
+      // Custom validation after schema
+      if (state.message.includes('spam')) {
+        throw new Error('Message contains spam')
+      }
+    },
+    onSubmit: async (state) => {
+      // 1. All field validations are triggered
+      // 2. Schema validation runs
+      // 3. validateBeforeSubmit runs
+      // 4. This callback runs if all validations pass
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        body: JSON.stringify(state),
+      })
+      return response.json()
+    },
+  }
+)
+
+// Submit returns a promise
+const result = await wrap(form.submit())
+
+// Access submission state
+console.log(form.submitted()) // true
+console.log(form.submit.data()) // Last successful result
+console.log(form.submit.error()) // Last error (if any)
+```
+
+### Submit with Custom Parameters
+
+```typescript
+const form = reatomForm(
+  { email: '' },
+  {
+    onSubmit: async (state, skipDebounce: boolean) => {
+      if (!skipDebounce) await wrap(sleep(300))
+      return { state, skipDebounce }
+    },
+  }
+)
+
+// Pass custom parameters to submit
+const result = await wrap(form.submit(true))
+console.log(result) // { state: { email: '' }, skipDebounce: true }
+```
+
+### Autofocus First Error Field
+
+```typescript
+import { reatomForm } from '@reatom/framework'
+import { withCallHook } from '@reatom/framework'
+
+const form = reatomForm(
+  { email: '', age: 0 },
+  {
+    schema: z.object({
+      email: z.string().email(),
+      age: z.number().min(18),
+    }),
+  }
+)
+
+// Focus first field with error on submit failure
+form.submit.onReject.extend(
+  withCallHook(() => {
+    const errorField = form
+      .fieldsList()
+      .find((field) => !!field.validation().error)
+    errorField?.elementRef()?.focus()
+  })
+)
+```
+
+### Nested Forms
+
+```typescript
+const form = reatomForm({
+  personal: {
+    firstName: '',
+    lastName: '',
+    age: 0,
+  },
+  address: {
+    street: '',
+    city: '',
+    country: '',
+  },
+})
+
+// Access nested fields
+form.fields.personal.firstName.change('John')
+form.fields.address.city.change('New York')
+
+// Get form state
+const state = form()
+// {
+//   personal: { firstName: 'John', lastName: '', age: 0 },
+//   address: { street: '', city: 'New York', country: '' }
+// }
+```
+
+## Submit Flow
+
+When `submit()` is called, the following sequence occurs:
+
+1. **Field Validation**: All fields in `fieldsList` have their validation triggered
+2. **Schema Validation**: If a schema is provided, it validates the entire form state
+3. **Custom Validation**: The `validateBeforeSubmit` callback runs (if provided)
+4. **Submit Handler**: The `onSubmit` callback executes with validated state
+5. **Submitted State**: The `submitted` atom is set to `true`
+6. **Reset** (optional): If `resetOnSubmit` is true, the form resets to initial state
+
+If any step throws an error, the flow stops and the error is available via `submit.error()`.
+
+## Related
+
+- [reatomField](/api/forms/reatom-field) - Create individual form fields
+- [reatomFieldArray](/api/forms/reatom-field-array) - Manage dynamic field arrays
+- [Standard Schema](https://standardschema.dev) - Schema validation specification

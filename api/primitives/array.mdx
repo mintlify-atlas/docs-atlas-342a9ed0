@@ -1,0 +1,178 @@
+---
+title: reatomArray
+description: A primitive atom for managing array state with convenient mutation methods
+---
+
+## Overview
+
+`reatomArray` creates an atom that manages array state with built-in methods for common array mutations like `push`, `pop`, `shift`, and `unshift`. All mutations create new array instances to maintain immutability.
+
+## Import
+
+```typescript
+import { reatomArray } from '@reatom/core'
+```
+
+## Type Signature
+
+```typescript
+interface ArrayAtom<T> extends Atom<Array<T>> {
+  push: Action<[...items: T[]], number>
+  pop: Action<[], T | undefined>
+  shift: Action<[], T | undefined>
+  unshift: Action<[...items: T[]], number>
+}
+
+function reatomArray<T>(
+  initState?: T[],
+  name?: string
+): ArrayAtom<T>
+```
+
+## Parameters
+
+<ParamField path="initState" type="T[]" default="[]">
+  The initial array value
+</ParamField>
+
+<ParamField path="name" type="string" default="'arrayAtom'">
+  Optional name for the atom, useful for debugging
+</ParamField>
+
+## Methods
+
+### push
+
+Adds one or more elements to the end of the array and returns the new length.
+
+<ParamField path="...items" type="T[]">
+  Elements to add to the end of the array
+</ParamField>
+
+**Returns:** `number` - The new length of the array
+
+```typescript
+const arrayAtom = reatomArray([3, 1, 2])
+const newLength = arrayAtom.push(4)
+console.log(newLength) // 4
+console.log(arrayAtom()) // [3, 1, 2, 4]
+```
+
+### pop
+
+Removes and returns the last element from the array.
+
+**Returns:** `T | undefined` - The removed element, or `undefined` if the array is empty
+
+```typescript
+const arrayAtom = reatomArray([3, 1, 2])
+const removed = arrayAtom.pop()
+console.log(removed) // 2
+console.log(arrayAtom()) // [3, 1]
+```
+
+### shift
+
+Removes and returns the first element from the array.
+
+**Returns:** `T | undefined` - The removed element, or `undefined` if the array is empty
+
+```typescript
+const arrayAtom = reatomArray([3, 1, 2])
+const removed = arrayAtom.shift()
+console.log(removed) // 3
+console.log(arrayAtom()) // [1, 2]
+```
+
+### unshift
+
+Adds one or more elements to the beginning of the array and returns the new length.
+
+<ParamField path="...items" type="T[]">
+  Elements to add to the beginning of the array
+</ParamField>
+
+**Returns:** `number` - The new length of the array
+
+```typescript
+const arrayAtom = reatomArray([3, 1, 2])
+const newLength = arrayAtom.unshift(4, 5)
+console.log(newLength) // 5
+console.log(arrayAtom()) // [4, 5, 3, 1, 2]
+```
+
+## Basic Usage
+
+```typescript
+import { reatomArray } from '@reatom/core'
+
+// Create an array atom with initial values
+const numbersAtom = reatomArray([1, 2, 3])
+
+// Read the current value
+console.log(numbersAtom()) // [1, 2, 3]
+
+// Add elements
+numbersAtom.push(4, 5)
+console.log(numbersAtom()) // [1, 2, 3, 4, 5]
+
+// Remove from end
+const last = numbersAtom.pop()
+console.log(last) // 5
+console.log(numbersAtom()) // [1, 2, 3, 4]
+
+// Add to beginning
+numbersAtom.unshift(0)
+console.log(numbersAtom()) // [0, 1, 2, 3, 4]
+
+// Remove from beginning
+const first = numbersAtom.shift()
+console.log(first) // 0
+console.log(numbersAtom()) // [1, 2, 3, 4]
+```
+
+## Advanced Usage
+
+### Type-Safe Arrays
+
+```typescript
+interface Task {
+  id: string
+  title: string
+  completed: boolean
+}
+
+const tasksAtom = reatomArray<Task>([], 'tasks')
+
+tasksAtom.push({
+  id: '1',
+  title: 'Learn Reatom',
+  completed: false
+})
+```
+
+### Using with Atom Methods
+
+Since `ArrayAtom` extends `Atom`, you can still use standard atom methods:
+
+```typescript
+const arrayAtom = reatomArray([1, 2, 3])
+
+// Direct state updates
+arrayAtom.set([4, 5, 6])
+
+// Functional updates
+arrayAtom.set(prev => prev.filter(n => n > 2))
+
+// Subscribe to changes
+const unsubscribe = arrayAtom.subscribe((value) => {
+  console.log('Array changed:', value)
+})
+```
+
+## Notes
+
+- All mutation methods create new array instances, preserving immutability
+- Methods return the same values as their native JavaScript array counterparts
+- The atom can be used anywhere a regular `Atom<Array<T>>` is expected
+- Direct mutations like `arrayAtom()[0] = 5` will not trigger updates; use `set()` or the provided methods instead

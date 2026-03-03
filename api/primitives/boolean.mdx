@@ -1,0 +1,300 @@
+---
+title: reatomBoolean
+description: A primitive atom for managing boolean state with convenient toggle and set operations
+---
+
+## Overview
+
+`reatomBoolean` creates an atom that manages boolean state with built-in methods for common boolean operations like `toggle`, `setTrue`, `setFalse`, and `reset`.
+
+## Import
+
+```typescript
+import { reatomBoolean } from '@reatom/core'
+```
+
+## Type Signature
+
+```typescript
+interface BooleanAtom extends Atom<boolean> {
+  toggle: Action<[], boolean>
+  setTrue: Action<[], true>
+  setFalse: Action<[], false>
+  reset: Action<[], boolean>
+}
+
+function reatomBoolean(
+  init?: boolean,
+  name?: string
+): BooleanAtom
+```
+
+## Parameters
+
+<ParamField path="init" type="boolean" default="false">
+  The initial boolean value
+</ParamField>
+
+<ParamField path="name" type="string" default="'booleanAtom'">
+  Optional name for the atom, useful for debugging
+</ParamField>
+
+## Methods
+
+### toggle
+
+Toggles the boolean value between `true` and `false`.
+
+**Returns:** `boolean` - The new value (opposite of the previous value)
+
+```typescript
+const flag = reatomBoolean(false)
+
+flag.toggle()
+console.log(flag()) // true
+
+flag.toggle()
+console.log(flag()) // false
+```
+
+### setTrue
+
+Sets the value to `true`.
+
+**Returns:** `true`
+
+```typescript
+const enabled = reatomBoolean(false)
+
+enabled.setTrue()
+console.log(enabled()) // true
+```
+
+### setFalse
+
+Sets the value to `false`.
+
+**Returns:** `false`
+
+```typescript
+const enabled = reatomBoolean(true)
+
+enabled.setFalse()
+console.log(enabled()) // false
+```
+
+### reset
+
+Resets the boolean to its initial value.
+
+**Returns:** `boolean` - The initial value
+
+```typescript
+const flag = reatomBoolean(true)
+
+flag.setFalse()
+console.log(flag()) // false
+
+flag.reset()
+console.log(flag()) // true
+```
+
+## Basic Usage
+
+```typescript
+import { reatomBoolean } from '@reatom/core'
+
+// Create a boolean atom
+const isOpen = reatomBoolean(false, 'isOpen')
+
+// Read the value
+console.log(isOpen()) // false
+
+// Set to true
+isOpen.setTrue()
+console.log(isOpen()) // true
+
+// Toggle
+isOpen.toggle()
+console.log(isOpen()) // false
+
+// Set to false
+isOpen.setFalse()
+console.log(isOpen()) // false
+
+// Reset to initial value
+isOpen.reset()
+console.log(isOpen()) // false
+```
+
+## Advanced Usage
+
+### Modal State Management
+
+```typescript
+const isModalOpen = reatomBoolean(false, 'modal')
+
+function openModal() {
+  isModalOpen.setTrue()
+}
+
+function closeModal() {
+  isModalOpen.setFalse()
+}
+
+function toggleModal() {
+  isModalOpen.toggle()
+}
+
+// Usage in UI
+if (isModalOpen()) {
+  // Render modal
+}
+```
+
+### Feature Flags
+
+```typescript
+const features = {
+  darkMode: reatomBoolean(false, 'darkMode'),
+  notifications: reatomBoolean(true, 'notifications'),
+  betaFeatures: reatomBoolean(false, 'betaFeatures'),
+}
+
+// Toggle dark mode
+features.darkMode.toggle()
+
+// Enable beta features
+features.betaFeatures.setTrue()
+
+// Disable notifications
+features.notifications.setFalse()
+```
+
+### Form Field State
+
+```typescript
+import { computed } from '@reatom/core'
+
+const agreedToTerms = reatomBoolean(false, 'terms')
+const subscribedToNewsletter = reatomBoolean(false, 'newsletter')
+
+const canSubmit = computed(() => {
+  return agreedToTerms()
+})
+
+function handleTermsChange(checked: boolean) {
+  if (checked) {
+    agreedToTerms.setTrue()
+  } else {
+    agreedToTerms.setFalse()
+  }
+}
+
+function handleNewsletterToggle() {
+  subscribedToNewsletter.toggle()
+}
+```
+
+### Loading States
+
+```typescript
+const isLoading = reatomBoolean(false, 'loading')
+const hasError = reatomBoolean(false, 'error')
+
+async function fetchData() {
+  isLoading.setTrue()
+  hasError.setFalse()
+  
+  try {
+    const response = await fetch('/api/data')
+    const data = await response.json()
+    return data
+  } catch (error) {
+    hasError.setTrue()
+    throw error
+  } finally {
+    isLoading.setFalse()
+  }
+}
+```
+
+### Visibility Toggles
+
+```typescript
+const showPassword = reatomBoolean(false)
+const showAdvanced = reatomBoolean(false)
+const showSidebar = reatomBoolean(true)
+
+function togglePasswordVisibility() {
+  showPassword.toggle()
+}
+
+function toggleAdvancedSettings() {
+  showAdvanced.toggle()
+}
+
+function collapseSidebar() {
+  showSidebar.setFalse()
+}
+
+function expandSidebar() {
+  showSidebar.setTrue()
+}
+```
+
+### Permission Checks
+
+```typescript
+import { computed } from '@reatom/core'
+
+const canEdit = reatomBoolean(false, 'canEdit')
+const canDelete = reatomBoolean(false, 'canDelete')
+const canShare = reatomBoolean(true, 'canShare')
+
+const hasAnyPermission = computed(() => {
+  return canEdit() || canDelete() || canShare()
+})
+
+const hasAllPermissions = computed(() => {
+  return canEdit() && canDelete() && canShare()
+})
+
+function grantEditPermission() {
+  canEdit.setTrue()
+}
+
+function revokeAllPermissions() {
+  canEdit.setFalse()
+  canDelete.setFalse()
+  canShare.setFalse()
+}
+```
+
+### Using with Atom Methods
+
+Since `BooleanAtom` extends `Atom`, you can use standard atom methods:
+
+```typescript
+const bool = reatomBoolean(false)
+
+// Direct state updates
+bool.set(true)
+
+// Functional updates
+bool.set(prev => !prev)
+
+// Subscribe to changes
+const unsubscribe = bool.subscribe((value) => {
+  console.log('Boolean changed:', value)
+})
+```
+
+## Notes
+
+- Default initial value is `false`
+- `toggle()` returns the new value after toggling
+- `setTrue()` and `setFalse()` return the literal types `true` and `false` respectively
+- `reset()` returns to the initial value provided during creation
+- All operations trigger reactive updates
+- Direct assignments like `booleanAtom() = true` will not work; use the provided methods or `set()`

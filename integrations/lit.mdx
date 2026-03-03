@@ -1,0 +1,538 @@
+---
+title: Lit Integration
+description: Use Reatom state management with Lit web components for reactive custom elements
+---
+
+The `@reatom/lit` package provides integration between Reatom and Lit, enabling reactive state management in web components with automatic dependency tracking.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @reatom/lit @reatom/core lit
+```
+
+```bash yarn
+yarn add @reatom/lit @reatom/core lit
+```
+
+```bash pnpm
+pnpm add @reatom/lit @reatom/core lit
+```
+</CodeGroup>
+
+<Note>
+This package requires Lit 2.6.0 or higher and is currently in alpha.
+</Note>
+
+## Core Features
+
+### withReatomElement
+
+Create reactive Lit elements that automatically track atom dependencies:
+
+```ts
+import { LitElement } from 'lit'
+import { customElement } from 'lit/decorators.js'
+import { html } from '@reatom/lit'
+import { withReatomElement } from '@reatom/lit'
+import { atom } from '@reatom/core'
+import { createContext } from '@reatom/core'
+
+// Create context
+const ctx = createContext()
+const countAtom = atom(0, 'count')
+
+@customElement('my-counter')
+class MyCounter extends withReatomElement(LitElement) {
+  render() {
+    const count = countAtom()
+    
+    return html`
+      <div>
+        <p>Count: ${count}</p>
+        <button @click=${() => countAtom.set(count + 1)}>
+          Increment
+        </button>
+      </div>
+    `
+  }
+}
+```
+
+**Benefits:**
+- Automatic subscription management
+- Re-renders only when accessed atoms change
+- Lifecycle integration (connects/disconnects subscriptions)
+- Works with standard Lit decorators and features
+
+### html and svg Templates
+
+Reatom provides enhanced template functions that automatically watch atoms:
+
+```ts
+import { html, svg } from '@reatom/lit'
+import { atom } from '@reatom/core'
+import { LitElement } from 'lit'
+import { customElement } from 'lit/decorators.js'
+import { withReatomElement } from '@reatom/lit'
+
+const messageAtom = atom('Hello', 'message')
+const countAtom = atom(0, 'count')
+
+@customElement('greeting-card')
+class GreetingCard extends withReatomElement(LitElement) {
+  render() {
+    // Atoms are automatically watched in templates
+    return html`
+      <div>
+        <h1>${messageAtom}</h1>
+        <p>Count: ${countAtom}</p>
+      </div>
+    `
+  }
+}
+```
+
+When you use atoms directly in templates, they're automatically converted to watched values using the `watch` directive.
+
+### watch Directive
+
+Manually watch atoms in templates:
+
+```ts
+import { LitElement, html as litHtml } from 'lit'
+import { customElement } from 'lit/decorators.js'
+import { withReatomElement, watch } from '@reatom/lit'
+import { atom } from '@reatom/core'
+
+const nameAtom = atom('World', 'name')
+
+@customElement('manual-watch')
+class ManualWatch extends withReatomElement(LitElement) {
+  render() {
+    // Using standard Lit html with manual watch
+    return litHtml`
+      <div>Hello, ${watch(nameAtom)}!</div>
+    `
+  }
+}
+```
+
+The `watch` directive:
+- Subscribes to atom changes
+- Updates the template when atom changes
+- Automatically unsubscribes when disconnected
+- Accepts an optional frame parameter
+
+## Complete Examples
+
+### Counter Component
+
+```ts
+import { LitElement, css } from 'lit'
+import { customElement } from 'lit/decorators.js'
+import { html, withReatomElement } from '@reatom/lit'
+import { atom, computed } from '@reatom/core'
+
+const countAtom = atom(0, 'count')
+const doubledAtom = computed(() => countAtom() * 2, 'doubled')
+
+@customElement('counter-element')
+class CounterElement extends withReatomElement(LitElement) {
+  static styles = css`
+    :host {
+      display: block;
+      padding: 16px;
+      font-family: sans-serif;
+    }
+    
+    button {
+      margin: 4px;
+      padding: 8px 16px;
+      font-size: 14px;
+    }
+  `
+  
+  render() {
+    return html`
+      <div>
+        <h2>Count: ${countAtom}</h2>
+        <p>Doubled: ${doubledAtom}</p>
+        <button @click=${() => countAtom.set(countAtom() + 1)}>+</button>
+        <button @click=${() => countAtom.set(countAtom() - 1)}>-</button>
+        <button @click=${() => countAtom.set(0)}>Reset</button>
+      </div>
+    `
+  }
+}
+```
+
+### Todo List Component
+
+```ts
+import { LitElement, css } from 'lit'
+import { customElement, state } from 'lit/decorators.js'
+import { html, withReatomElement } from '@reatom/lit'
+import { atom, computed } from '@reatom/core'
+
+interface Todo {
+  id: number
+  text: string
+  completed: boolean
+}
+
+const todosAtom = atom<Todo[]>([], 'todos')
+
+const activeTodosAtom = computed(
+  () => todosAtom().filter(t => !t.completed),
+  'activeTodos'
+)
+
+const completedTodosAtom = computed(
+  () => todosAtom().filter(t => t.completed),
+  'completedTodos'
+)
+
+@customElement('todo-list')
+class TodoList extends withReatomElement(LitElement) {
+  static styles = css`
+    :host {
+      display: block;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    .completed {
+      text-decoration: line-through;
+      opacity: 0.6;
+    }
+    
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+    
+    li {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+  `
+  
+  @state()
+  private newTodoText = ''
+  
+  private addTodo() {
+    if (this.newTodoText.trim()) {
+      todosAtom.set([
+        ...todosAtom(),
+        {
+          id: Date.now(),
+          text: this.newTodoText,
+          completed: false
+        }
+      ])
+      this.newTodoText = ''
+    }
+  }
+  
+  private toggleTodo(id: number) {
+    todosAtom.set(
+      todosAtom().map(todo =>
+        todo.id === id ? { ...todo, completed: !todo.completed } : todo
+      )
+    )
+  }
+  
+  private removeTodo(id: number) {
+    todosAtom.set(todosAtom().filter(todo => todo.id !== id))
+  }
+  
+  render() {
+    const todos = todosAtom()
+    const active = activeTodosAtom()
+    const completed = completedTodosAtom()
+    
+    return html`
+      <div>
+        <h1>Todo List</h1>
+        <p>Active: ${active.length} | Completed: ${completed.length}</p>
+        
+        <div>
+          <input
+            .value=${this.newTodoText}
+            @input=${(e: InputEvent) => {
+              this.newTodoText = (e.target as HTMLInputElement).value
+            }}
+            @keypress=${(e: KeyboardEvent) => {
+              if (e.key === 'Enter') this.addTodo()
+            }}
+            placeholder="Add a todo..."
+          />
+          <button @click=${() => this.addTodo()}>Add</button>
+        </div>
+        
+        <ul>
+          ${todos.map(todo => html`
+            <li>
+              <input
+                type="checkbox"
+                .checked=${todo.completed}
+                @change=${() => this.toggleTodo(todo.id)}
+              />
+              <span class=${todo.completed ? 'completed' : ''}>
+                ${todo.text}
+              </span>
+              <button @click=${() => this.removeTodo(todo.id)}>Delete</button>
+            </li>
+          `)}
+        </ul>
+      </div>
+    `
+  }
+}
+```
+
+### Multi-Component App
+
+```ts
+import { LitElement, css } from 'lit'
+import { customElement, property } from 'lit/decorators.js'
+import { html, withReatomElement } from '@reatom/lit'
+import { atom, computed } from '@reatom/core'
+
+// Shared state
+const userAtom = atom<{ name: string; email: string } | null>(null, 'user')
+const themeAtom = atom<'light' | 'dark'>('light', 'theme')
+
+// Header component
+@customElement('app-header')
+class AppHeader extends withReatomElement(LitElement) {
+  static styles = css`
+    header {
+      padding: 16px;
+      background: var(--header-bg, #333);
+      color: var(--header-color, white);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+  `
+  
+  render() {
+    const user = userAtom()
+    const theme = themeAtom()
+    
+    return html`
+      <header>
+        <h1>My App</h1>
+        <div>
+          <span>${user ? user.name : 'Guest'}</span>
+          <button @click=${() => {
+            themeAtom.set(theme === 'light' ? 'dark' : 'light')
+          }}>
+            Toggle ${theme === 'light' ? '🌙' : '☀️'}
+          </button>
+        </div>
+      </header>
+    `
+  }
+}
+
+// Profile component
+@customElement('user-profile')
+class UserProfile extends withReatomElement(LitElement) {
+  static styles = css`
+    :host {
+      display: block;
+      padding: 16px;
+    }
+  `
+  
+  private login() {
+    userAtom.set({
+      name: 'John Doe',
+      email: 'john@example.com'
+    })
+  }
+  
+  private logout() {
+    userAtom.set(null)
+  }
+  
+  render() {
+    const user = userAtom()
+    
+    if (!user) {
+      return html`
+        <button @click=${() => this.login()}>Login</button>
+      `
+    }
+    
+    return html`
+      <div>
+        <h2>${user.name}</h2>
+        <p>${user.email}</p>
+        <button @click=${() => this.logout()}>Logout</button>
+      </div>
+    `
+  }
+}
+
+// Main app
+@customElement('my-app')
+class MyApp extends withReatomElement(LitElement) {
+  render() {
+    const theme = themeAtom()
+    
+    return html`
+      <div class="app ${theme}">
+        <app-header></app-header>
+        <user-profile></user-profile>
+      </div>
+    `
+  }
+}
+```
+
+### SVG with Atoms
+
+```ts
+import { LitElement } from 'lit'
+import { customElement } from 'lit/decorators.js'
+import { svg, withReatomElement } from '@reatom/lit'
+import { atom, computed } from '@reatom/core'
+
+const radiusAtom = atom(50, 'radius')
+const colorAtom = atom('blue', 'color')
+
+const circumferenceAtom = computed(
+  () => 2 * Math.PI * radiusAtom(),
+  'circumference'
+)
+
+@customElement('circle-demo')
+class CircleDemo extends withReatomElement(LitElement) {
+  render() {
+    return svg`
+      <svg width="200" height="200">
+        <circle
+          cx="100"
+          cy="100"
+          r="${radiusAtom}"
+          fill="${colorAtom}"
+        />
+        <text x="100" y="190" text-anchor="middle">
+          Circumference: ${computed(() => 
+            circumferenceAtom().toFixed(2)
+          )}
+        </text>
+      </svg>
+      <div>
+        <input
+          type="range"
+          min="10"
+          max="90"
+          .value=${String(radiusAtom())}
+          @input=${(e: Event) => {
+            radiusAtom.set(Number((e.target as HTMLInputElement).value))
+          }}
+        />
+        <input
+          type="color"
+          .value=${colorAtom()}
+          @input=${(e: Event) => {
+            colorAtom.set((e.target as HTMLInputElement).value)
+          }}
+        />
+      </div>
+    `
+  }
+}
+```
+
+## TypeScript Support
+
+Full TypeScript support with decorators:
+
+```ts
+import { LitElement } from 'lit'
+import { customElement, property } from 'lit/decorators.js'
+import { html, withReatomElement } from '@reatom/lit'
+import { atom } from '@reatom/core'
+
+interface Product {
+  id: number
+  name: string
+  price: number
+}
+
+const cartAtom = atom<Product[]>([], 'cart')
+
+@customElement('product-card')
+class ProductCard extends withReatomElement(LitElement) {
+  @property({ type: Object })
+  product!: Product
+  
+  render() {
+    const cart = cartAtom()
+    const inCart = cart.some(p => p.id === this.product.id)
+    
+    return html`
+      <div>
+        <h3>${this.product.name}</h3>
+        <p>$${this.product.price}</p>
+        <button
+          @click=${() => {
+            if (!inCart) {
+              cartAtom.set([...cart, this.product])
+            }
+          }}
+          ?disabled=${inCart}
+        >
+          ${inCart ? 'In Cart' : 'Add to Cart'}
+        </button>
+      </div>
+    `
+  }
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Always extend with withReatomElement">
+    Use `withReatomElement(LitElement)` as your base class to enable automatic atom tracking.
+  </Step>
+  
+  <Step title="Use Reatom html and svg">
+    Import template functions from `@reatom/lit` for automatic atom watching in templates.
+  </Step>
+  
+  <Step title="Share atoms across components">
+    Define atoms outside components to share state across multiple web components.
+  </Step>
+  
+  <Step title="Leverage computed atoms">
+    Use computed atoms for derived state to maintain reactivity across the component tree.
+  </Step>
+</Steps>
+
+## Lifecycle Integration
+
+The `withReatomElement` mixin integrates with Lit's lifecycle:
+
+- **connectedCallback**: Starts tracking atoms and subscribes to changes
+- **disconnectedCallback**: Unsubscribes from all atoms
+- **shouldUpdate**: Optimized to prevent unnecessary updates
+- **render**: Automatically re-renders when tracked atoms change
+
+## Next Steps
+
+- Learn about [Core Concepts](/core/atom) for atoms and state management
+- Explore [Web Components](/integrations/lit) for building custom elements
+- Check out [Asynchttps://github.com/reatom/reatom/tree/main/packages for handling asynchronous state

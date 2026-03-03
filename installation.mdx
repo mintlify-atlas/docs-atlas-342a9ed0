@@ -1,0 +1,193 @@
+---
+title: Installation
+description: Install Reatom with your preferred package manager
+---
+
+# Installation
+
+Reatom is a framework-agnostic library with various adapters for different frameworks. By default, all docs and examples are written for React, but you can reuse each code example with any other framework.
+
+## Package Managers
+
+Install Reatom using your preferred package manager:
+
+<CodeGroup>
+
+```bash npm
+npm install @reatom/core @reatom/react
+```
+
+```bash yarn
+yarn add @reatom/core @reatom/react
+```
+
+```bash pnpm
+pnpm add @reatom/core @reatom/react
+```
+
+</CodeGroup>
+
+<Note>
+  The examples above install both `@reatom/core` and `@reatom/react`. If you're using a different framework, replace `@reatom/react` with the appropriate adapter (e.g., `@reatom/vue`, `@reatom/solid`).
+</Note>
+
+## Framework-Specific Installation
+
+### React
+
+For React applications, install the core package and React adapter:
+
+<CodeGroup>
+
+```bash npm
+npm install @reatom/core @reatom/react
+```
+
+```bash yarn
+yarn add @reatom/core @reatom/react
+```
+
+```bash pnpm
+pnpm add @reatom/core @reatom/react
+```
+
+</CodeGroup>
+
+### Vue
+
+For Vue applications:
+
+<CodeGroup>
+
+```bash npm
+npm install @reatom/core @reatom/vue
+```
+
+```bash yarn
+yarn add @reatom/core @reatom/vue
+```
+
+```bash pnpm
+pnpm add @reatom/core @reatom/vue
+```
+
+</CodeGroup>
+
+### Solid
+
+For Solid applications:
+
+<CodeGroup>
+
+```bash npm
+npm install @reatom/core @reatom/solid
+```
+
+```bash yarn
+yarn add @reatom/core @reatom/solid
+```
+
+```bash pnpm
+pnpm add @reatom/core @reatom/solid
+```
+
+</CodeGroup>
+
+### Other Frameworks
+
+Reatom also supports:
+
+- **Preact**: `@reatom/preact`
+- **Lit**: `@reatom/lit`
+- **Svelte**: `@reatom/svelte`
+- **Angular**: `@reatom/angular`
+
+See the [Framework Integrations](/integrations/react) section for more details.
+
+## Using a Template
+
+For a fast start, you can use the official Reatom template with React and Mantine:
+
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/reatom/reatom/tree/v1000/examples/react-search)
+
+This template includes:
+
+- Pre-configured React setup
+- Mantine UI components
+- Example features with search, filtering, and pagination
+- Best practices and file structure
+
+## Core Only
+
+If you're building a framework-agnostic library or want to use Reatom without any UI framework:
+
+<CodeGroup>
+
+```bash npm
+npm install @reatom/core
+```
+
+```bash yarn
+yarn add @reatom/core
+```
+
+```bash pnpm
+pnpm add @reatom/core
+```
+
+</CodeGroup>
+
+## Package Size
+
+Reatom is extremely lightweight:
+
+- **Core package**: Just [2 KB](https://bundlejs.com/?q=%40reatom%2Fcore) gzipped
+- Tree-shakeable: Only pay for what you use
+- Zero dependencies: No bloat in your bundle
+
+<Tip>
+  All Reatom packages are tree-shakeable, so you can import only the features you need without worrying about bundle size.
+</Tip>
+
+## TypeScript Support
+
+Reatom is written in TypeScript and provides excellent type inference out of the box. No additional type definitions are needed.
+
+```typescript
+import { atom, computed } from '@reatom/core'
+
+// Types are automatically inferred
+const count = atom(0) // Atom<number>
+const doubled = computed(() => count() * 2) // Computed<number>
+```
+
+## Verify Installation
+
+To verify that Reatom is installed correctly, create a simple test file:
+
+```typescript test.ts
+import { atom } from '@reatom/core'
+
+const counter = atom(0)
+
+console.log(counter()) // 0
+
+counter.set(1)
+console.log(counter()) // 1
+
+counter.set((state) => state + 5)
+console.log(counter()) // 6
+```
+
+If this runs without errors, you're ready to go!
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Build your first counter app with Reatom
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/core/atom">
+    Learn about atoms, computed, and effects
+  </Card>
+</CardGroup>

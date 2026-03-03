@@ -1,0 +1,289 @@
+---
+title: 'action()'
+description: 'Creates a logic and side effect container with atom-like features'
+---
+
+## Overview
+
+The `action()` function creates a container for complex logic, side effects, and orchestration of multiple state updates. Unlike atoms, actions are meant to be called with parameters and can return values. Actions have atom-like features (subscribe, extend) and track their call history.
+
+## Import
+
+```typescript
+import { action } from '@reatom/core'
+```
+
+## Signature
+
+```typescript
+function action<Params extends any[], Payload>(
+  cb: (...params: Params) => Payload,
+  name?: string
+): Action<Params, Payload>
+
+function action<Param, Payload>(
+  cb: (() => Payload) | ((param?: Param) => Payload),
+  name?: string
+): Action<[Param?], Payload>
+
+function action<T extends Fn>(
+  cb: T,
+  name?: string
+): GenericAction<T>
+```
+
+## Parameters
+
+<ParamField path="cb" type="(...params: Params) => Payload" required>
+  The function containing the action's logic. It can accept any parameters and return any value. The function can be synchronous or asynchronous.
+</ParamField>
+
+<ParamField path="name" type="string" optional>
+  Optional name for the action. Useful for debugging and dev tools. If not provided, an auto-generated name based on the function name will be used.
+</ParamField>
+
+## Returns
+
+<ResponseField name="action" type="Action<Params, Payload>">
+  An action instance with the following interface:
+  
+  <Expandable title="Action Interface">
+    <ResponseField name="(...params)" type="(...params: Params) => Payload">
+      Call the action with parameters to execute its logic. Returns the payload.
+    </ResponseField>
+    
+    <ResponseField name="subscribe" type="(cb?: (state: ActionState<Params, Payload>) => any) => Unsubscribe">
+      Subscribe to action calls. The callback receives an array of action calls with their params and payload. The state is automatically cleared after each transaction.
+    </ResponseField>
+    
+    <ResponseField name="extend" type="Extend<this>">
+      Apply extensions to add functionality to the action. See [extend()](/api/core/extend) for details.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Action
+
+```typescript
+import { action } from '@reatom/core'
+
+const greet = action((name: string) => {
+  return `Hello, ${name}!`
+}, 'greet')
+
+const message = greet('Alice') // -> "Hello, Alice!"
+```
+
+### State Updates in Actions
+
+```typescript
+import { atom, action } from '@reatom/core'
+
+const count = atom(0, 'count')
+const lastUpdate = atom('', 'lastUpdate')
+
+const increment = action((amount: number = 1) => {
+  count.set(count() + amount)
+  lastUpdate.set(new Date().toISOString())
+  return count()
+}, 'increment')
+
+increment() // -> 1
+increment(5) // -> 6
+count() // -> 6
+```
+
+### Async Actions
+
+```typescript
+import { action, atom, wrap } from '@reatom/core'
+
+const userData = atom(null, 'userData')
+const isLoading = atom(false, 'isLoading')
+
+const fetchUser = action(async (userId: string) => {
+  isLoading.set(true)
+  
+  try {
+    const response = await wrap(fetch(`/api/users/${userId}`))
+    const data = await wrap(response.json())
+    
+    userData.set(data)
+    return data
+  } finally {
+    isLoading.set(false)
+  }
+}, 'fetchUser')
+
+await fetchUser('123')
+```
+
+### Subscribing to Actions
+
+```typescript
+const addItem = action((item: string) => {
+  console.log('Adding:', item)
+  return item
+}, 'addItem')
+
+addItem.subscribe((state) => {
+  console.log('Action called:', state)
+})
+// Logs immediately: "Action called: []"
+
+addItem('apple')
+// Logs: "Adding: apple"
+// Then after transaction: "Action called: [{ params: ['apple'], payload: 'apple' }]"
+
+addItem('banana')
+// Logs: "Adding: banana"  
+// Then after transaction: "Action called: [{ params: ['banana'], payload: 'banana' }]"
+```
+
+### No Arguments Action
+
+```typescript
+let counter = 0
+
+const tick = action(() => {
+  counter++
+  return counter
+}, 'tick')
+
+tick() // -> 1
+tick() // -> 2
+tick() // -> 3
+```
+
+### Complex Action Logic
+
+```typescript
+interface TodoItem {
+  id: string
+  text: string
+  completed: boolean
+}
+
+const todos = atom<TodoItem[]>([], 'todos')
+const filter = atom<'all' | 'active' | 'completed'>('all', 'filter')
+
+const addTodo = action((text: string) => {
+  const newTodo: TodoItem = {
+    id: crypto.randomUUID(),
+    text,
+    completed: false
+  }
+  
+  todos.set([...todos(), newTodo])
+  return newTodo
+}, 'addTodo')
+
+const toggleTodo = action((id: string) => {
+  todos.set(
+    todos().map(todo =>
+      todo.id === id
+        ? { ...todo, completed: !todo.completed }
+        : todo
+    )
+  )
+}, 'toggleTodo')
+
+const clearCompleted = action(() => {
+  const active = todos().filter(todo => !todo.completed)
+  todos.set(active)
+  return active.length
+}, 'clearCompleted')
+
+addTodo('Buy milk')
+addTodo('Walk the dog')
+toggleTodo(todos()[0].id)
+clearCompleted() // -> 1
+```
+
+### Actions with Error Handling
+
+```typescript
+const riskyAction = action(async (shouldFail: boolean) => {
+  if (shouldFail) {
+    throw new Error('Action failed')
+  }
+  return 'Success'
+}, 'riskyAction')
+
+try {
+  await riskyAction(true)
+} catch (error) {
+  console.error('Caught:', error.message) // -> "Caught: Action failed"
+}
+
+const result = await riskyAction(false) // -> "Success"
+```
+
+### Action Middleware
+
+```typescript
+import { action, withActionMiddleware } from '@reatom/core'
+
+// Create a logging middleware
+const withLogging = withActionMiddleware((target) => {
+  return (next, ...params) => {
+    console.log(`[${target.name}] Called with:`, params)
+    const result = next(...params)
+    console.log(`[${target.name}] Returned:`, result)
+    return result
+  }
+})
+
+const calculate = action((a: number, b: number) => {
+  return a + b
+}, 'calculate').extend(withLogging)
+
+calculate(2, 3)
+// Logs: "[calculate] Called with: [2, 3]"
+// Logs: "[calculate] Returned: 5"
+```
+
+## Type Information
+
+### Action Interface
+
+```typescript
+interface Action<Params extends any[] = any[], Payload = any>
+  extends AtomLike<ActionState<Params, Payload>, Params, Payload> {}
+```
+
+### ActionState Interface
+
+```typescript
+interface ActionState<Params extends any[] = any[], Payload = any>
+  extends Array<ActionCall<Params, Payload>> {}
+
+interface ActionCall<Params extends any[], Payload> {
+  params: Params
+  payload: Payload
+}
+```
+
+### GenericAction Type
+
+```typescript
+type GenericAction<T extends Fn> = T & Action<Parameters<T>, ReturnType<T>>
+```
+
+## Key Characteristics
+
+- **Non-Reactive**: Actions are not reactive atoms - they don't track dependencies
+- **Call History**: Actions maintain a state array of all calls with their parameters and payloads
+- **Auto-Cleanup**: The action state is automatically cleared after each transaction
+- **Subscribable**: Actions can be subscribed to track when they're called
+- **Extensible**: Actions support the same extension system as atoms
+
+## Related
+
+- [atom()](/api/core/atom) - Create mutable state containers
+- [computed()](/api/core/computed) - Create derived state
+- [effect()](/api/core/effect) - Create reactive side effects
+- [extend()](/api/core/extend) - Add functionality to actions
+- [withActionMiddleware()](/api/extensions/with-action-middleware) - Add middleware to actions

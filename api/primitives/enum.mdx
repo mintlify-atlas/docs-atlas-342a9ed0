@@ -1,0 +1,333 @@
+---
+title: reatomEnum
+description: A primitive atom for managing enumerated state with type-safe variant setters
+---
+
+## Overview
+
+`reatomEnum` creates an atom that manages enumerated (enum) state with automatically generated setter methods for each variant. It supports both camelCase and snake_case naming conventions and provides compile-time type safety.
+
+## Import
+
+```typescript
+import { reatomEnum } from '@reatom/core'
+```
+
+## Type Signature
+
+```typescript
+type EnumFormat = 'camelCase' | 'snake_case'
+
+type EnumAtom<
+  T extends string,
+  Format extends EnumFormat = 'camelCase',
+> = Atom<T> &
+  EnumVariantSetters<T, Format> & {
+    reset: Action<[], T>
+    enum: { [K in T]: K }
+  }
+
+type EnumAtomOptions<
+  T extends string,
+  Format extends EnumFormat = 'camelCase',
+> = {
+  name?: string
+  format?: Format
+  initState?: T
+}
+
+function reatomEnum<
+  const T extends string,
+  Format extends 'camelCase' | 'snake_case' = 'camelCase',
+>(
+  variants: ReadonlyArray<T>,
+  options?: string | EnumAtomOptions<T, Format>
+): EnumAtom<T, Format>
+```
+
+## Parameters
+
+<ParamField path="variants" type="ReadonlyArray<T>" required>
+  An array of string literals representing the possible enum values
+</ParamField>
+
+<ParamField path="options" type="string | EnumAtomOptions<T, Format>" optional>
+  Either a string name for the atom, or an options object
+</ParamField>
+
+### EnumAtomOptions
+
+<ParamField path="name" type="string" default="'enumAtom'">
+  Optional name for the atom, useful for debugging
+</ParamField>
+
+<ParamField path="format" type="'camelCase' | 'snake_case'" default="'camelCase'">
+  The naming format for generated setter methods
+</ParamField>
+
+<ParamField path="initState" type="T" default="variants[0]">
+  The initial enum value. Defaults to the first variant
+</ParamField>
+
+## Properties
+
+### enum
+
+A static object mapping each variant to itself, useful for comparisons and type guards.
+
+**Type:** `{ [K in T]: K }`
+
+```typescript
+const sortAtom = reatomEnum(['fullName', 'created', 'updated'])
+
+console.log(sortAtom.enum)
+// { fullName: 'fullName', created: 'created', updated: 'updated' }
+
+// Usage
+if (sortAtom() === sortAtom.enum.created) {
+  // Handle 'created' case
+}
+```
+
+## Methods
+
+### Dynamic Setters (camelCase)
+
+For each variant, a setter method is generated with the pattern `set{CapitalizedVariant}`.
+
+```typescript
+const sortAtom = reatomEnum(['fullName', 'created', 'updated', 'pushed'])
+
+// Generated methods:
+sortAtom.setFullName()
+sortAtom.setCreated()
+sortAtom.setUpdated()
+sortAtom.setPushed()
+```
+
+### Dynamic Setters (snake_case)
+
+When using `format: 'snake_case'`, setter methods follow the pattern `set_{variant}`.
+
+```typescript
+const sortAtom = reatomEnum(
+  ['full_name', 'created', 'updated', 'pushed'],
+  { format: 'snake_case' }
+)
+
+// Generated methods:
+sortAtom.set_full_name()
+sortAtom.set_created()
+sortAtom.set_updated()
+sortAtom.set_pushed()
+```
+
+### reset
+
+Resets the enum to its initial value.
+
+**Returns:** `T` - The initial value
+
+```typescript
+const enumAtom = reatomEnum(['a', 'b'], { initState: 'b' })
+
+enumAtom.set('a')
+console.log(enumAtom()) // 'a'
+
+enumAtom.reset()
+console.log(enumAtom()) // 'b'
+```
+
+## Basic Usage
+
+```typescript
+import { reatomEnum } from '@reatom/core'
+
+// Create an enum atom with camelCase setters
+const sortFilter = reatomEnum(['fullName', 'created', 'updated', 'pushed'])
+
+// Read the current value
+console.log(sortFilter()) // 'fullName' (first variant by default)
+
+// Use generated setter methods
+sortFilter.setUpdated()
+console.log(sortFilter()) // 'updated'
+
+sortFilter.setCreated()
+console.log(sortFilter()) // 'created'
+
+// Access enum values
+console.log(sortFilter.enum) 
+// { fullName: 'fullName', created: 'created', updated: 'updated', pushed: 'pushed' }
+```
+
+## Advanced Usage
+
+### Snake Case Format
+
+```typescript
+const sortFilter = reatomEnum(
+  ['full_name', 'created', 'updated', 'pushed'],
+  { format: 'snake_case' }
+)
+
+console.log(Object.keys(sortFilter.enum)) 
+// ['full_name', 'created', 'updated', 'pushed']
+
+console.log(sortFilter()) // 'full_name'
+
+sortFilter.set_updated()
+console.log(sortFilter()) // 'updated'
+```
+
+### Custom Initial State
+
+```typescript
+const status = reatomEnum(
+  ['idle', 'loading', 'success', 'error'],
+  { initState: 'idle' }
+)
+
+console.log(status()) // 'idle'
+
+status.setLoading()
+status.setSuccess()
+status.reset()
+console.log(status()) // 'idle'
+```
+
+### Theme Switcher
+
+```typescript
+const theme = reatomEnum(['light', 'dark', 'auto'], {
+  name: 'theme',
+  initState: 'auto'
+})
+
+function toggleTheme() {
+  const current = theme()
+  if (current === theme.enum.light) {
+    theme.setDark()
+  } else if (current === theme.enum.dark) {
+    theme.setAuto()
+  } else {
+    theme.setLight()
+  }
+}
+
+function setLightTheme() {
+  theme.setLight()
+}
+
+function setDarkTheme() {
+  theme.setDark()
+}
+```
+
+### View Mode
+
+```typescript
+const viewMode = reatomEnum(['grid', 'list', 'compact'], {
+  name: 'viewMode',
+  initState: 'grid'
+})
+
+function renderView() {
+  const mode = viewMode()
+  switch (mode) {
+    case viewMode.enum.grid:
+      return 'Grid View'
+    case viewMode.enum.list:
+      return 'List View'
+    case viewMode.enum.compact:
+      return 'Compact View'
+  }
+}
+```
+
+### Status Machine
+
+```typescript
+import { computed } from '@reatom/core'
+
+const requestStatus = reatomEnum(['idle', 'pending', 'success', 'error'])
+
+const isLoading = computed(() => requestStatus() === requestStatus.enum.pending)
+const hasError = computed(() => requestStatus() === requestStatus.enum.error)
+const isSuccess = computed(() => requestStatus() === requestStatus.enum.success)
+
+async function fetchData() {
+  requestStatus.setPending()
+  
+  try {
+    const response = await fetch('/api/data')
+    const data = await response.json()
+    requestStatus.setSuccess()
+    return data
+  } catch (error) {
+    requestStatus.setError()
+    throw error
+  }
+}
+
+function resetRequest() {
+  requestStatus.reset() // back to 'idle'
+}
+```
+
+### Type Guards with Enum
+
+```typescript
+const userRole = reatomEnum(['admin', 'editor', 'viewer'])
+
+function canEdit(): boolean {
+  const role = userRole()
+  return role === userRole.enum.admin || role === userRole.enum.editor
+}
+
+function canDelete(): boolean {
+  return userRole() === userRole.enum.admin
+}
+```
+
+### Validation
+
+```typescript
+const priority = reatomEnum(['low', 'medium', 'high', 'critical'])
+
+// The atom validates values and throws on invalid ones
+try {
+  priority.set('invalid' as any)
+} catch (error) {
+  console.error(error) // ReatomError: invalid enum value
+}
+
+// Only valid variants work
+priority.setHigh() // ✓
+priority.set(priority.enum.low) // ✓
+```
+
+### Using with Atom Methods
+
+Since `EnumAtom` extends `Atom`, you can use standard atom methods:
+
+```typescript
+const enumAtom = reatomEnum(['a', 'b', 'c'])
+
+// Direct state updates (with validation)
+enumAtom.set('b')
+
+// Subscribe to changes
+const unsubscribe = enumAtom.subscribe((value) => {
+  console.log('Enum changed:', value)
+})
+```
+
+## Notes
+
+- The enum atom validates all set operations and throws a `ReatomError` if an invalid value is provided
+- Setter methods are automatically generated based on the format option
+- The first variant is used as the initial state if no `initState` is provided
+- The `enum` property provides a convenient way to reference variants without string literals
+- Type safety is preserved throughout, preventing invalid enum values at compile time
+- All variants must be provided as a readonly array of string literals for proper type inference

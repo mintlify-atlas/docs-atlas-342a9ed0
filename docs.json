@@ -1,122 +1,144 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Reatom",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#06b6d4",
+    "light": "#22d3ee",
+    "dark": "#0e7490"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/reatom/reatom"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/reatom/reatom",
+      "twitter": "https://twitter.com/ReatomJS",
+      "discord": "https://discord.gg/EPAKK5SNFh"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
               "index",
-              "quickstart",
-              "development"
+              "installation",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "core/atom",
+              "core/computed",
+              "core/actions",
+              "core/effects",
+              "core/extend"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/async-operations",
+              "guides/forms",
+              "guides/routing",
+              "guides/persistence",
+              "guides/testing"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Framework Integrations",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "integrations/react",
+              "integrations/vue",
+              "integrations/preact",
+              "integrations/solid",
+              "integrations/lit"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/performance",
+              "advanced/devtools",
+              "advanced/migration",
+              "advanced/contributing"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core",
             "pages": [
-              "api-reference/introduction"
+              "api/core/atom",
+              "api/core/computed",
+              "api/core/action",
+              "api/core/effect",
+              "api/core/extend"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Primitives",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/primitives/array",
+              "api/primitives/map",
+              "api/primitives/set",
+              "api/primitives/record",
+              "api/primitives/number",
+              "api/primitives/string",
+              "api/primitives/boolean",
+              "api/primitives/enum",
+              "api/primitives/linked-list"
+            ]
+          },
+          {
+            "group": "Async",
+            "pages": [
+              "api/async/with-async",
+              "api/async/with-async-data",
+              "api/async/with-async-status"
+            ]
+          },
+          {
+            "group": "Extensions",
+            "pages": [
+              "api/extensions/with-abort",
+              "api/extensions/with-change-hook",
+              "api/extensions/with-computed",
+              "api/extensions/with-connect-hook",
+              "api/extensions/with-init",
+              "api/extensions/with-memo",
+              "api/extensions/with-suspense",
+              "api/extensions/with-suspense-retry"
+            ]
+          },
+          {
+            "group": "Forms",
+            "pages": [
+              "api/forms/reatom-form",
+              "api/forms/reatom-field",
+              "api/forms/reatom-field-array"
+            ]
+          },
+          {
+            "group": "Routing",
+            "pages": [
+              "api/routing/reatom-route",
+              "api/routing/search-params"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

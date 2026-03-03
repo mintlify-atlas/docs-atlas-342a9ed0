@@ -1,0 +1,344 @@
+---
+title: withInit
+description: Define dynamically computed initial value for an atom
+---
+
+## Overview
+
+The `withInit` extension allows you to define a dynamically computed initial value for an atom. While you can typically use an init callback in the atom's first argument (`atom(() => new Date())`), `withInit` is useful when you need to add an initial callback after atom creation or compose multiple initialization steps.
+
+## Type Signature
+
+```typescript
+function withInit<Target extends AtomLike>(
+  init: AtomState<Target> | ((state: AtomState<Target>, ...params: any[]) => AtomState<Target>)
+): Ext<Target>
+
+function withInitHook<Target extends AtomLike>(
+  hook: (initState: AtomState<Target>) => any,
+  queue?: QueueKind
+): Ext<Target>
+
+function isInit(): boolean
+```
+
+## Parameters
+
+<ParamField path="init" type="State | (state, ...params) => State" required>
+  The initial value or a function that returns the initial value based on current state.
+  
+  **As value:** Direct initial state  
+  **As function:** Receives current state and any init params, returns new initial state
+</ParamField>
+
+## Return Value
+
+Returns an extension that sets the initial state on first evaluation.
+
+## Examples
+
+### Basic Init Value
+
+```typescript
+import { atom } from '@reatom/core'
+import { withInit } from '@reatom/core/extensions'
+
+const data = atom(0, 'data').extend(withInit(1))
+
+console.log(data()) // → 1
+```
+
+### Init with Callback
+
+```typescript
+const data = atom(0, 'data').extend(
+  withInit(() => Math.random())
+)
+
+console.log(data()) // → random number (e.g., 0.742)
+data() // → same random number (callback only runs once)
+```
+
+### Compose Initial State
+
+```typescript
+const something = reatomSomething().extend(
+  withInit((initState) => ({
+    ...initState,
+    additionalField: 'value',
+  }))
+)
+```
+
+### Conditional Init
+
+```typescript
+const myData = atom(null, 'myData')
+
+if (import.meta.env.TEST) {
+  myData.extend(withInit(mockData))
+}
+```
+
+### Multiple Init Extensions
+
+```typescript
+const data = atom(0, 'data').extend(
+  withInit(() => 1),
+  withInit((state) => state + 10)
+)
+
+console.log(data()) // → 11
+// First init: 0 → 1
+// Second init: 1 → 11
+```
+
+### Different Contexts
+
+```typescript
+import { context, clearStack } from '@reatom/core'
+
+let i = 0
+const data = atom(0, 'data').extend(
+  withInit(() => i++)
+)
+
+console.log(data()) // → 0
+console.log(data()) // → 0 (same context)
+
+clearStack()
+
+console.log(context.start(() => data())) // → 1 (new context)
+console.log(context.start(() => data())) // → 2 (another new context)
+
+context.start(() => {
+  console.log(data()) // → 3
+  console.log(data()) // → 3 (same context)
+  
+  console.log(context.start(() => data())) // → 4 (nested context)
+})
+```
+
+### Reusable Init Extension
+
+```typescript
+const timestampInit = withInit(() => Date.now())
+
+const a1 = atom(0, 'a1').extend(timestampInit)
+const a2 = atom(0, 'a2').extend(timestampInit)
+
+console.log(a1()) // → 1709467200000
+console.log(a2()) // → 0 (extension only runs for first atom)
+```
+
+### Init with Parameters
+
+```typescript
+const data = atom(0, 'data').extend(
+  withInit((initState, multiplier = 2) => initState * multiplier)
+)
+
+// Note: params only available in specific contexts
+// This is an advanced use case
+```
+
+### Cycle Breaking
+
+```typescript
+const state = atom(0).extend(
+  withInit((init, ...params) => 
+    params.length ? init : initState()
+  )
+)
+
+const initState = atom(0).extend(
+  withInit((init, ...params) => 
+    params.length ? init : state()
+  )
+)
+
+// Both can reference each other without infinite loop
+console.log(state())     // → 0
+console.log(initState()) // → 0
+
+initState.set(5)
+console.log(state())     // → 5
+```
+
+## withInitHook
+
+Runs a callback during initialization without modifying the state:
+
+```typescript
+const userAtom = atom({ id: 1, name: 'John' }).extend(
+  withInitHook((initState) => {
+    analytics.track('user_loaded', initState)
+  })
+)
+```
+
+### Init Hook with Queue
+
+```typescript
+const data = atom(0).extend(
+  withInitHook(
+    (state) => {
+      console.log('Init state:', state)
+    },
+    'effect' // Queue kind
+  )
+)
+```
+
+## isInit Helper
+
+Checks if currently in the initialization phase:
+
+```typescript
+import { isInit } from '@reatom/core/extensions'
+
+const search = atom('', 'search').extend(withSearchParams('search'))
+
+const page = atom(1, 'page').extend(
+  withSearchParams('page'),
+  withComputed((state) => {
+    search() // subscribe to search changes
+    // Do NOT drop the persisted state on init
+    return isInit() ? state : 1
+  })
+)
+```
+
+## Use Cases
+
+### Random ID Generation
+
+```typescript
+const generateId = () => 
+  Math.random().toString(36).substring(7)
+
+const item = atom({ name: '' }, 'item').extend(
+  withInit((state) => ({
+    ...state,
+    id: generateId(),
+  }))
+)
+```
+
+### Timestamp Creation
+
+```typescript
+const record = atom({ value: 0 }, 'record').extend(
+  withInit((state) => ({
+    ...state,
+    createdAt: Date.now(),
+  }))
+)
+```
+
+### Load from LocalStorage
+
+```typescript
+const preferences = atom(
+  { theme: 'light' },
+  'preferences'
+).extend(
+  withInit(() => {
+    const stored = localStorage.getItem('preferences')
+    return stored ? JSON.parse(stored) : { theme: 'light' }
+  })
+)
+```
+
+### Merge Default Config
+
+```typescript
+const defaultConfig = {
+  timeout: 5000,
+  retries: 3,
+  cache: true,
+}
+
+const config = atom({ timeout: 10000 }, 'config').extend(
+  withInit((state) => ({
+    ...defaultConfig,
+    ...state,
+  }))
+)
+
+console.log(config())
+// → { timeout: 10000, retries: 3, cache: true }
+```
+
+### Environment-Specific Initialization
+
+```typescript
+const apiUrl = atom('', 'apiUrl').extend(
+  withInit(() => {
+    if (import.meta.env.PROD) {
+      return 'https://api.production.com'
+    } else if (import.meta.env.DEV) {
+      return 'http://localhost:3000'
+    } else {
+      return 'https://api.staging.com'
+    }
+  })
+)
+```
+
+### Feature Flag Init
+
+```typescript
+const features = atom(
+  { newUI: false },
+  'features'
+).extend(
+  withInit((state) => ({
+    ...state,
+    newUI: localStorage.getItem('beta-features') === 'true',
+  }))
+)
+```
+
+### Sequential Initialization
+
+```typescript
+const data = atom({ value: 0 }, 'data').extend(
+  withInit((state) => {
+    console.log('First init:', state)
+    return { ...state, step1: true }
+  }),
+  withInit((state) => {
+    console.log('Second init:', state)
+    return { ...state, step2: true }
+  }),
+  withInit((state) => {
+    console.log('Third init:', state)
+    return { ...state, step3: true }
+  })
+)
+
+console.log(data())
+// → { value: 0, step1: true, step2: true, step3: true }
+```
+
+### Analytics on Init
+
+```typescript
+const session = atom(
+  { userId: null, startTime: Date.now() },
+  'session'
+).extend(
+  withInitHook((state) => {
+    analytics.track('session_started', {
+      startTime: state.startTime,
+    })
+  })
+)
+```
+
+## Related
+
+- [atom](/api/core/atom) - Base atom primitive
+- [withComputed](/api/extensions/with-computed) - Add computed behavior
+- [withChangeHook](/api/extensions/with-change-hook) - React to state changes

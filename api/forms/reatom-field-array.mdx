@@ -1,0 +1,439 @@
+---
+title: 'reatomFieldArray'
+description: 'Manage dynamic arrays of form fields with reactive list operations'
+---
+
+## Overview
+
+`reatomFieldArray` creates a reactive atom for managing dynamic arrays of form fields. It combines `LinkedListAtom` with field capabilities, providing:
+- Efficient list operations (add, remove, reorder)
+- Form state tracking (validation, focus, dirty)
+- Support for nested field structures
+- Factory functions for custom field creation
+
+## Type Signature
+
+```typescript
+function reatomFieldArray<Param, Node extends FieldsAtomizeInitState>(
+  initState: Param[] | ((param: Param, name: string) => Node),
+  options?: FieldArrayOptions<Param, Node>
+): FieldArrayAtom<Param, Node>
+```
+
+## Parameters
+
+<ParamField path="initState" type="Param[] | CreateFunction">
+  Either:
+  - Array of initial values (automatically converted to fields)
+  - Factory function to create field structure from parameter
+</ParamField>
+
+<ParamField path="options" type="FieldArrayOptions<Param, Node> | string">
+  Configuration options or debug name string
+
+  <Expandable title="properties">
+    <ParamField path="name" type="string">
+      Debug name for the field array and related atoms
+    </ParamField>
+
+    <ParamField path="create" type="(param: Param, name: string) => Node">
+      Factory function to transform input parameters into field element structure.
+      Receives the parameter and an auto-generated name.
+    </ParamField>
+
+    <ParamField path="validate" type="ValidateOption | StandardSchemaV1">
+      Validation function or Standard Schema for the entire array.
+      Receives `{ value, state, focus }` and should return error message or throw.
+    </ParamField>
+
+    <ParamField path="validateOnChange" type="boolean" default="false">
+      Trigger validation when array changes (add/remove/reorder)
+    </ParamField>
+
+    <ParamField path="validateOnBlur" type="boolean" default="false">
+      Trigger validation when array loses focus
+    </ParamField>
+
+    <ParamField path="validateOnConnect" type="boolean" default="false">
+      Trigger validation when array is first subscribed to
+    </ParamField>
+
+    <ParamField path="keepErrorOnChange" type="boolean" default="true">
+      Keep validation error visible when array changes
+    </ParamField>
+
+    <ParamField path="keepErrorDuringValidating" type="boolean" default="false">
+      Keep previous error during async validation
+    </ParamField>
+
+    <ParamField path="isDirty" type="(newState, prevState) => boolean">
+      Custom function to determine if array is dirty. Defaults to shallow equality check.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Value
+
+<ResponseField name="FieldArrayAtom" type="FieldArrayAtom<Param, Node>">
+  Field array atom with the following properties:
+
+  <Expandable title="properties">
+    <ResponseField name="array" type="Computed<FieldsAtomize<Node>[]>">
+      Current array of field elements
+    </ResponseField>
+
+    <ResponseField name="create" type="Action<[Param], FieldsAtomize<Node>>">
+      Add a new element to the array. Returns the created element.
+    </ResponseField>
+
+    <ResponseField name="remove" type="Action<[element], void>">
+      Remove an element from the array
+    </ResponseField>
+
+    <ResponseField name="clear" type="Action<[], void>">
+      Remove all elements from the array
+    </ResponseField>
+
+    <ResponseField name="move" type="Action<[from: number, to: number], void>">
+      Move an element from one index to another
+    </ResponseField>
+
+    <ResponseField name="validation" type="Computed<ValidationState>">
+      Validation state for the array:
+      - `validation()` - Current validation state
+      - `validation.trigger()` - Manually trigger validation
+      - `validation.errors()` - Array of validation errors
+    </ResponseField>
+
+    <ResponseField name="focus" type="Computed<FocusState>">
+      Focus state aggregated from all elements: `{ active, dirty, touched }`
+    </ResponseField>
+
+    <ResponseField name="disabled" type="Atom<boolean>">
+      Whether the array is disabled
+    </ResponseField>
+
+    <ResponseField name="reset" type="Action">
+      Reset array to initial state
+    </ResponseField>
+
+    <ResponseField name="initState" type="Atom">
+      The initial state atom
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Array
+
+```typescript
+import { reatomFieldArray } from '@reatom/framework'
+
+const tagsArray = reatomFieldArray(['react', 'reatom'])
+
+// Add items
+const newTag = tagsArray.create('typescript')
+console.log(tagsArray.array().length) // 3
+
+// Access items
+const tags = tagsArray.array()
+console.log(tags[0].value()) // 'react'
+
+// Remove items
+tagsArray.remove(newTag)
+console.log(tagsArray.array().length) // 2
+
+// Clear all
+tagsArray.clear()
+console.log(tagsArray.array().length) // 0
+```
+
+### Array with Factory Function
+
+```typescript
+import { reatomFieldArray, reatomField } from '@reatom/framework'
+
+const todosArray = reatomFieldArray(
+  (text: string) => ({
+    text: reatomField(text),
+    completed: reatomField(false),
+    createdAt: reatomField(new Date()),
+  }),
+  'todos'
+)
+
+// Create new todo
+const todo = todosArray.create('Buy milk')
+
+// Access todo fields
+console.log(todo.text.value()) // 'Buy milk'
+console.log(todo.completed.value()) // false
+
+// Update todo
+todo.completed.change(true)
+todo.text.change('Buy organic milk')
+```
+
+### Array with Initial State and Factory
+
+```typescript
+import { reatomFieldArray } from '@reatom/framework'
+
+const contactsArray = reatomFieldArray(
+  ['alice@example.com', 'bob@example.com'],
+  {
+    create: (email: string) => ({
+      email,
+      verified: false,
+    }),
+    name: 'contacts',
+  }
+)
+
+console.log(contactsArray.array().length) // 2
+console.log(contactsArray.array()[0].email.value()) // 'alice@example.com'
+
+// Add new contact
+const newContact = contactsArray.create('charlie@example.com')
+console.log(newContact.verified.value()) // false
+```
+
+### Array Validation
+
+```typescript
+import { reatomFieldArray } from '@reatom/framework'
+import { z } from 'zod'
+
+const itemsArray = reatomFieldArray([''], {
+  name: 'items',
+  validate: z.array(z.string()).min(2, 'At least 2 items required'),
+  validateOnChange: true,
+})
+
+console.log(itemsArray.validation().error) // 'At least 2 items required'
+
+itemsArray.create('Item 2')
+console.log(itemsArray.validation().error) // undefined
+```
+
+### Custom Validation Logic
+
+```typescript
+import { reatomFieldArray } from '@reatom/framework'
+
+const permissionsArray = reatomFieldArray(
+  [{ resource: 'users', enabled: true }],
+  {
+    validate: ({ state }) => {
+      const hasEnabled = state.some((item) => item.enabled())
+      return hasEnabled ? undefined : 'At least one permission must be enabled'
+    },
+    validateOnChange: true,
+  }
+)
+
+// Disable all permissions
+permissionsArray.array()[0].enabled.set(false)
+console.log(itemsArray.validation().error)
+// 'At least one permission must be enabled'
+```
+
+### Nested Arrays
+
+```typescript
+import { reatomForm, reatomFieldArray } from '@reatom/framework'
+
+const form = reatomForm({
+  addresses: [
+    {
+      country: '',
+      city: '',
+      tags: ['home', 'primary'],
+    },
+  ],
+})
+
+const addresses = form.fields.addresses
+
+// Add new address
+const newAddress = addresses.create({
+  country: 'USA',
+  city: 'New York',
+  tags: ['work'],
+})
+
+// Access nested array
+const tags = newAddress.tags
+tags.create('billing')
+console.log(tags.array().length) // 2
+```
+
+### Complex Nested Structure
+
+```typescript
+import { reatomFieldArray, reatomBoolean } from '@reatom/framework'
+import { withField } from '@reatom/framework'
+
+const phoneNumbersArray = reatomFieldArray([], {
+  create: ({ number, priority }: { number: string; priority: boolean }, name) => ({
+    number,
+    priority: reatomBoolean(priority, `${name}.priority`).extend(withField()),
+  }),
+  name: 'phoneNumbers',
+})
+
+const phone = phoneNumbersArray.create({
+  number: '555-0123',
+  priority: true,
+})
+
+console.log(phone.number.value()) // '555-0123'
+console.log(phone.priority()) // true
+
+// Toggle priority
+phone.priority.toggle()
+console.log(phone.priority()) // false
+```
+
+### Moving Items
+
+```typescript
+import { reatomFieldArray } from '@reatom/framework'
+
+const playlistArray = reatomFieldArray([
+  'Song 1',
+  'Song 2',
+  'Song 3',
+])
+
+// Move song from index 0 to index 2
+playlistArray.move(0, 2)
+
+const songs = playlistArray.array()
+console.log(songs[0].value()) // 'Song 2'
+console.log(songs[1].value()) // 'Song 3'
+console.log(songs[2].value()) // 'Song 1'
+```
+
+### Dynamic Reset
+
+```typescript
+import { reatomFieldArray } from '@reatom/framework'
+
+const itemsArray = reatomFieldArray(['a', 'b', 'c'])
+
+itemsArray.create('d')
+console.log(itemsArray.array().length) // 4
+
+// Reset to initial state
+itemsArray.reset()
+console.log(itemsArray.array().length) // 3
+
+// Reset to new state
+itemsArray.reset(['x', 'y'])
+console.log(itemsArray.array().length) // 2
+console.log(itemsArray.array()[0].value()) // 'x'
+```
+
+### Array with Cross-Field Validation
+
+```typescript
+import { atom, reatomFieldArray } from '@reatom/framework'
+
+const minLength = atom(2, 'minLength')
+
+const itemsArray = reatomFieldArray(['a'], {
+  validateOnChange: true,
+  validate: ({ value }) => {
+    if (value.length < minLength()) {
+      return `Need at least ${minLength()} items`
+    }
+  },
+})
+
+console.log(itemsArray.validation().error) // 'Need at least 2 items'
+
+itemsArray.create('b')
+console.log(itemsArray.validation().error) // undefined
+
+// Change requirement
+minLength.set(3)
+console.log(itemsArray.validation().error) // 'Need at least 3 items'
+```
+
+### Dirty State Tracking
+
+```typescript
+import { reatomFieldArray } from '@reatom/framework'
+
+const itemsArray = reatomFieldArray(['a', 'b', 'c'])
+
+console.log(itemsArray.focus().dirty) // false
+
+const element = itemsArray.create('d')
+console.log(itemsArray.focus().dirty) // true
+
+// Remove the new element
+itemsArray.remove(element)
+console.log(itemsArray.focus().dirty) // false (back to initial state)
+```
+
+### Async Array Validation
+
+```typescript
+import { reatomFieldArray } from '@reatom/framework'
+import { wrap } from '@reatom/framework'
+
+const tagsArray = reatomFieldArray(['tag1'], {
+  validate: async ({ value }) => {
+    await wrap(sleep(100))
+    if (value.length > 10) {
+      throw new Error('Too many tags')
+    }
+  },
+  validateOnChange: true,
+})
+
+for (let i = 0; i < 11; i++) {
+  tagsArray.create(`tag${i}`)
+}
+
+console.log(tagsArray.validation().validating) // Promise
+
+await wrap(tagsArray.validation().validating)
+console.log(tagsArray.validation().error) // 'Too many tags'
+```
+
+## Type Utilities
+
+### FieldArrayItem
+
+Extract the type of a single element from a field array:
+
+```typescript
+import { reatomFieldArray, type FieldArrayItem } from '@reatom/framework'
+
+const usersArray = reatomFieldArray([{ name: 'Alice', age: 30 }])
+
+type UserItem = FieldArrayItem<typeof usersArray>
+// UserItem = { name: FieldAtom<string>, age: FieldAtom<number> }
+```
+
+### isFieldArrayAtom
+
+Type guard to check if an atom is a field array:
+
+```typescript
+import { isFieldArrayAtom } from '@reatom/framework'
+
+if (isFieldArrayAtom(someAtom)) {
+  someAtom.create({ name: '', age: 0 })
+}
+```
+
+## Related
+
+- [reatomForm](/api/forms/reatom-form) - Create complete forms
+- [reatomField](/api/forms/reatom-field) - Create individual fields
+- [LinkedListAtom](/api/primitives/linked-list) - Underlying list implementation

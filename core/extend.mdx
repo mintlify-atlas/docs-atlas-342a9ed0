@@ -1,0 +1,530 @@
+---
+title: "Extend System"
+description: "Add functionality and customize behavior of atoms and actions through extensions"
+---
+
+## Overview
+
+The **extend** system is Reatom's mechanism for adding capabilities to atoms and actions without modifying their core behavior. Extensions enable you to compose functionality in a modular, reusable way.
+
+Extensions can:
+- Add new methods to atoms/actions
+- Modify behavior with middleware
+- Transform parameters or return values
+- Add lifecycle hooks
+- Enable feature composition
+
+## Basic Usage
+
+### Extending Atoms
+
+```typescript
+import { atom } from '@reatom/core'
+
+const count = atom(0, 'count').extend(
+  withReset(0),
+  withLogger('COUNT')
+)
+
+// Now has additional methods from extensions
+count.reset() // Added by withReset
+```
+
+### Extension Type Signature
+
+```typescript
+interface Ext<Target extends AtomLike = AtomLike, Extension = Target> {
+  (target: Target): Extension
+}
+
+interface Extend<This extends AtomLike> {
+  <T1>(extension1: Ext<This, T1>): Merge<This, [T1]>
+  <T1, T2>(
+    extension1: Ext<This, T1>,
+    extension2: Ext<Merge<This, [T1]>, T2>
+  ): Merge<This, [T1, T2]>
+  // ... up to 10 extensions
+}
+```
+
+## Built-in Extension Utilities
+
+### withMiddleware
+
+Add middleware that intercepts atom/action execution:
+
+```typescript
+import { atom, withMiddleware } from '@reatom/core'
+
+const withLogger = (prefix: string) =>
+  withMiddleware((target) => {
+    return (next, ...params) => {
+      console.log(`${prefix} [${target.name}] Before:`, params)
+      const result = next(...params)
+      console.log(`${prefix} [${target.name}] After:`, result)
+      return result
+    }
+  })
+
+const counter = atom(0, 'counter').extend(
+  withLogger('DEBUG')
+)
+
+counter.set(5)
+// Logs: "DEBUG [counter] Before: [5]"
+// Logs: "DEBUG [counter] After: 5"
+```
+
+### withTap
+
+Observe state changes without modifying them:
+
+```typescript
+import { atom, withTap } from '@reatom/core'
+
+const data = atom({ count: 0 }, 'data').extend(
+  withTap((target, newState, prevState) => {
+    console.log('Changed from', prevState, 'to', newState)
+  })
+)
+
+data.set({ count: 1 })
+// Logs: "Changed from {count: 0} to {count: 1}"
+```
+
+### withParams
+
+Transform parameters before they reach the atom:
+
+```typescript
+import { atom, withParams } from '@reatom/core'
+
+// Convert from any unit to meters
+const length = atom(0, 'length').extend(
+  withParams((value: number, unit: 'cm' | 'm' | 'km') => {
+    switch (unit) {
+      case 'cm': return value / 100
+      case 'm': return value
+      case 'km': return value * 1000
+      default: return value
+    }
+  })
+)
+
+length.set(5, 'km') // Sets value to 5000 meters
+length.set(100, 'cm') // Sets value to 1 meter
+```
+
+### withComputed
+
+Add computed capabilities to an atom:
+
+```typescript
+import { atom, withComputed } from '@reatom/core'
+
+const celsius = atom(0, 'celsius').extend(
+  withComputed(c => Math.round(c))
+)
+
+celsius.set(25.7)
+console.log(celsius()) // -> 26 (rounded)
+```
+
+## Creating Custom Extensions
+
+### Extension that Returns the Target
+
+Simplest form - modify the target and return it:
+
+```typescript
+import { type Ext, type Atom } from '@reatom/core'
+
+// Add a reset method
+function withReset<T>(initialValue: T): Ext<Atom<T>> {
+  return (target) => {
+    return {
+      reset: () => target.set(initialValue)
+    }
+  }
+}
+
+const counter = atom(0, 'counter').extend(withReset(0))
+
+counter.set(10)
+counter.reset() // Back to 0
+```
+
+### Extension with Additional Methods
+
+Add multiple methods to an atom:
+
+```typescript
+import { atom, type Ext, type Atom } from '@reatom/core'
+
+function withCounterMethods(): Ext<Atom<number>> {
+  return (target) => ({
+    increment: () => target.set(prev => prev + 1),
+    decrement: () => target.set(prev => prev - 1),
+    reset: () => target.set(0),
+    add: (n: number) => target.set(prev => prev + n),
+  })
+}
+
+const count = atom(0, 'count').extend(withCounterMethods())
+
+count.increment() // 1
+count.add(5) // 6
+count.decrement() // 5
+count.reset() // 0
+```
+
+### Extension with Middleware
+
+Create extensions that modify behavior:
+
+```typescript
+import { withMiddleware, type Ext, type AtomLike } from '@reatom/core'
+
+// Validate values before setting
+function withValidation<T>(
+  validate: (value: T) => boolean,
+  errorMsg = 'Invalid value'
+): Ext<Atom<T>> {
+  return withMiddleware((target) => {
+    return (next, value) => {
+      if (!validate(value)) {
+        throw new Error(errorMsg)
+      }
+      return next(value)
+    }
+  })
+}
+
+const age = atom(0, 'age').extend(
+  withValidation(
+    (value) => value >= 0 && value < 150,
+    'Age must be between 0 and 150'
+  )
+)
+
+age.set(25) // OK
+age.set(-5) // Throws error
+age.set(200) // Throws error
+```
+
+### Extension with State Tracking
+
+```typescript
+import { atom, withMiddleware, type Ext, type Atom } from '@reatom/core'
+
+function withHistory<T>(): Ext<Atom<T>> {
+  const history: T[] = []
+  
+  return (target) => {
+    // Add middleware to track changes
+    target.extend(
+      withMiddleware(() => (next, ...params) => {
+        const result = next(...params)
+        history.push(result)
+        return result
+      })
+    )
+    
+    // Add history methods
+    return {
+      getHistory: () => [...history],
+      clearHistory: () => { history.length = 0 },
+    }
+  }
+}
+
+const value = atom(0, 'value').extend(withHistory())
+
+value.set(1)
+value.set(2)
+value.set(3)
+
+console.log(value.getHistory()) // [1, 2, 3]
+```
+
+## Action Extensions
+
+### withActionMiddleware
+
+Extensions specifically for actions:
+
+```typescript
+import { action, withActionMiddleware } from '@reatom/core'
+
+// Retry on failure
+function withRetry(maxAttempts: number) {
+  return withActionMiddleware((target) => {
+    return (next, ...params) => {
+      let attempts = 0
+      
+      while (attempts < maxAttempts) {
+        try {
+          return next(...params)
+        } catch (error) {
+          attempts++
+          if (attempts >= maxAttempts) throw error
+          console.log(`Retry ${attempts}/${maxAttempts}`)
+        }
+      }
+    }
+  })
+}
+
+const fetchData = action(async () => {
+  const response = await fetch('/api/data')
+  if (!response.ok) throw new Error('Failed')
+  return response.json()
+}, 'fetchData').extend(withRetry(3))
+```
+
+## Extension Composition
+
+Chain multiple extensions together:
+
+<CodeGroup>
+
+```typescript Multiple Extensions
+import { atom } from '@reatom/core'
+
+const counter = atom(0, 'counter').extend(
+  withReset(0),
+  withValidation(v => v >= 0),
+  withLogger('COUNTER'),
+  withHistory()
+)
+
+// Has all methods and behaviors
+counter.increment()
+counter.reset()
+console.log(counter.getHistory())
+```
+
+```typescript Reusable Preset
+// Create a preset of extensions
+function withFullFeatures<T>(initialValue: T) {
+  return (target: Atom<T>) => 
+    target.extend(
+      withReset(initialValue),
+      withLogger(target.name.toUpperCase()),
+      withHistory()
+    )
+}
+
+const value = atom(0, 'value').extend(
+  withFullFeatures(0)
+)
+```
+
+</CodeGroup>
+
+## Global Extensions
+
+Apply extensions to all future atoms:
+
+```typescript
+import { addGlobalExtension, isAction, withCallHook } from '@reatom/core'
+
+// Track all action calls for analytics
+addGlobalExtension((target) => {
+  if (isAction(target)) {
+    target.extend(
+      withCallHook(() => {
+        analytics.track(target.name)
+      })
+    )
+  }
+  return target
+})
+
+// All actions created after this will be tracked
+const myAction = action(() => {...}, 'myAction')
+```
+
+<Warning>
+Global extensions affect all atoms/actions in your application. Use them sparingly and only for cross-cutting concerns like logging or analytics.
+</Warning>
+
+## Advanced Patterns
+
+### Type-Safe Extensions
+
+```typescript
+import { type Ext, type Atom } from '@reatom/core'
+
+// Extension with proper TypeScript types
+interface ToggleMethods {
+  toggle: () => boolean
+  on: () => boolean
+  off: () => boolean
+}
+
+function withToggle(): Ext<Atom<boolean>, Atom<boolean> & ToggleMethods> {
+  return (target) => ({
+    toggle: () => target.set(prev => !prev),
+    on: () => target.set(true),
+    off: () => target.set(false),
+  })
+}
+
+const isOpen = atom(false, 'isOpen').extend(withToggle())
+
+// TypeScript knows about these methods
+isOpen.toggle()
+isOpen.on()
+isOpen.off()
+```
+
+### Conditional Extensions
+
+```typescript
+import { atom, isAtom, type Ext } from '@reatom/core'
+
+function withDevTools<T extends AtomLike>(enabled: boolean): Ext<T> {
+  return (target) => {
+    if (!enabled || !isAtom(target)) return target
+    
+    // Only add devtools in development
+    return target.extend(
+      withLogger('DEVTOOLS'),
+      connectToDevTools(target)
+    )
+  }
+}
+
+const isDev = process.env.NODE_ENV === 'development'
+
+const data = atom(0, 'data').extend(
+  withDevTools(isDev)
+)
+```
+
+## Extension Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep extensions focused">
+    Each extension should do one thing well:
+    
+    ```typescript
+    // Good - focused extensions
+    const counter = atom(0).extend(
+      withReset(0),
+      withValidation(v => v >= 0)
+    )
+    
+    // Avoid - doing too much in one extension
+    const counter = atom(0).extend(
+      withEverything() // reset, validation, logging, etc.
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Return type-safe objects">
+    Use TypeScript to ensure type safety:
+    
+    ```typescript
+    // Good - typed return
+    function withReset<T>(init: T): Ext<Atom<T>> {
+      return (target) => ({
+        reset: () => target.set(init)
+      })
+    }
+    
+    // Avoid - untyped
+    function withReset(init: any) {
+      return (target: any) => ({
+        reset: () => target.set(init)
+      })
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Don't change the atom reference">
+    Extensions must return the same atom or additional methods:
+    
+    ```typescript
+    // Good
+    function myExt(): Ext {
+      return (target) => {
+        // Modify target or return methods
+        return { newMethod: () => {} }
+      }
+    }
+    
+    // ERROR - creates new atom
+    function badExt(): Ext {
+      return (target) => atom(0) // Don't do this!
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Extension Recipes
+
+### Debounced Updates
+
+```typescript
+function withDebounce<T>(ms: number): Ext<Atom<T>> {
+  let timeout: any
+  
+  return withMiddleware(() => (next, value) => {
+    clearTimeout(timeout)
+    timeout = setTimeout(() => next(value), ms)
+  })
+}
+
+const search = atom('', 'search').extend(
+  withDebounce(300)
+)
+```
+
+### Persistence
+
+```typescript
+function withLocalStorage(key: string) {
+  return (target: Atom<any>) => {
+    // Load from storage
+    const stored = localStorage.getItem(key)
+    if (stored) {
+      target.set(JSON.parse(stored))
+    }
+    
+    // Save on changes
+    target.extend(
+      withTap((_, state) => {
+        localStorage.setItem(key, JSON.stringify(state))
+      })
+    )
+    
+    return target
+  }
+}
+
+const settings = atom({}, 'settings').extend(
+  withLocalStorage('app-settings')
+)
+```
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Atom" icon="atom" href="/core/atom">
+    Core state container
+  </Card>
+  
+  <Card title="Actions" icon="bolt" href="/core/actions">
+    Extend actions with middleware
+  </Card>
+  
+  <Card title="Computed" icon="function" href="/core/computed">
+    Extend derived state
+  </Card>
+  
+  <Card title="Effects" icon="wand-magic-sparkles" href="/core/effects">
+    Extend reactive effects
+  </Card>
+</CardGroup>

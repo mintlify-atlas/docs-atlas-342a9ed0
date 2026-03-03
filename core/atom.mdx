@@ -1,0 +1,277 @@
+---
+title: "Atom"
+description: "The core primitive for storing and managing mutable state in Reatom"
+---
+
+## Overview
+
+An **atom** is the fundamental building block of Reatom's state management system. It represents a mutable state container that can be read, updated, and subscribed to for changes.
+
+Atoms are reactive primitives that:
+- Store a single value of any type
+- Can be updated directly with new values
+- Automatically notify subscribers when their value changes
+- Track dependencies when read inside computed values
+
+## Creating Atoms
+
+### Basic Usage
+
+Create an atom with an initial value:
+
+```typescript
+import { atom } from '@reatom/core'
+
+// Create with initial value
+const counter = atom(0, 'counter')
+
+// Create with a factory function
+const timestamp = atom(() => Date.now(), 'timestamp')
+
+// Create without initial value (will be undefined)
+const optionalValue = atom<string>()
+```
+
+<Tip>
+Always provide a name as the second parameter for better debugging and DevTools support.
+</Tip>
+
+### Type Signature
+
+```typescript
+interface Atom<State = any, Params extends any[] = [newState: State]> {
+  // Read the current state
+  (): State
+  
+  // Update with a function
+  set(update: (state: State) => State): State
+  
+  // Set a new value
+  set(newState: State): State
+  
+  // Subscribe to changes
+  subscribe(cb?: (state: State) => any): Unsubscribe
+  
+  // Extension system
+  extend: Extend<this>
+}
+```
+
+## Reading State
+
+Call an atom as a function to read its current value:
+
+```typescript
+const count = atom(5, 'count')
+
+// Read the value
+const value = count() // -> 5
+```
+
+<Note>
+Reading an atom inside a computed value or effect automatically creates a dependency relationship.
+</Note>
+
+## Updating State
+
+Use the `.set()` method to update an atom's state:
+
+<CodeGroup>
+
+```typescript Direct Value
+const counter = atom(0, 'counter')
+
+// Set directly
+counter.set(5) // Sets value to 5
+counter.set(10) // Sets value to 10
+```
+
+```typescript Update Function
+const counter = atom(0, 'counter')
+
+// Update based on previous value
+counter.set(prev => prev + 1) // Increments by 1
+counter.set(prev => prev * 2) // Doubles the value
+```
+
+```typescript Complex Updates
+const user = atom({ name: 'Alice', age: 30 }, 'user')
+
+// Update object properties
+user.set(prev => ({ ...prev, age: 31 }))
+
+// Replace entire value
+user.set({ name: 'Bob', age: 25 })
+```
+
+</CodeGroup>
+
+<Warning>
+Atoms are **reactive** primitives. You cannot pass arguments when calling them to read state - use `.set()` instead for updates.
+</Warning>
+
+## Subscribing to Changes
+
+Subscribe to an atom to be notified whenever its value changes:
+
+```typescript
+const counter = atom(0, 'counter')
+
+// Subscribe with callback
+const unsubscribe = counter.subscribe(value => {
+  console.log('Counter changed:', value)
+})
+// Immediately logs: "Counter changed: 0"
+
+counter.set(5)
+// Logs: "Counter changed: 5"
+
+// Clean up when done
+unsubscribe()
+```
+
+<Tip>
+The subscription callback is called **immediately** with the current value, then again whenever the value changes.
+</Tip>
+
+## Lazy Initialization
+
+Use a factory function for expensive initial state computation:
+
+```typescript
+// Computed only once when first accessed
+const expensiveData = atom(() => {
+  console.log('Computing initial data...')
+  return processLargeDataset()
+}, 'expensiveData')
+
+// Factory only runs on first read or subscription
+expensiveData()
+```
+
+## Advanced Patterns
+
+### Connected vs Disconnected
+
+Atoms track whether they have active subscriptions:
+
+```typescript
+import { atom, isConnected } from '@reatom/core'
+
+const data = atom([], 'data')
+
+console.log(isConnected(data)) // false
+
+const unsub = data.subscribe()
+console.log(isConnected(data)) // true
+
+unsub()
+console.log(isConnected(data)) // false
+```
+
+### Atom Metadata
+
+Every atom has internal metadata accessible via `__reatom`:
+
+```typescript
+const count = atom(0, 'count')
+
+console.log(count.__reatom.reactive) // true
+console.log(count.__reatom.initState) // 0
+```
+
+<Warning>
+The `__reatom` property is for internal use and advanced debugging. Avoid accessing it in application code.
+</Warning>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always name your atoms">
+    Names help with debugging, logging, and DevTools integration:
+    
+    ```typescript
+    // Good
+    const userCount = atom(0, 'userCount')
+    
+    // Avoid
+    const userCount = atom(0)
+    ```
+  </Accordion>
+
+  <Accordion title="Use factory functions for complex initial state">
+    Factory functions ensure initialization happens lazily:
+    
+    ```typescript
+    // Good - computed only when needed
+    const config = atom(() => parseConfig(), 'config')
+    
+    // Avoid - computed immediately
+    const config = atom(parseConfig(), 'config')
+    ```
+  </Accordion>
+
+  <Accordion title="Keep atoms focused and single-purpose">
+    Create multiple atoms instead of one large atom:
+    
+    ```typescript
+    // Good
+    const userName = atom('', 'userName')
+    const userAge = atom(0, 'userAge')
+    
+    // Less ideal for most cases
+    const user = atom({ name: '', age: 0 }, 'user')
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Use Cases
+
+### Form State
+
+```typescript
+const email = atom('', 'email')
+const password = atom('', 'password')
+
+email.set('user@example.com')
+password.set('secret123')
+```
+
+### Toggle State
+
+```typescript
+const isModalOpen = atom(false, 'isModalOpen')
+
+// Toggle
+isModalOpen.set(prev => !prev)
+```
+
+### Counter
+
+```typescript
+const count = atom(0, 'count')
+
+const increment = () => count.set(prev => prev + 1)
+const decrement = () => count.set(prev => prev - 1)
+const reset = () => count.set(0)
+```
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Computed" icon="function" href="/core/computed">
+    Derive state automatically from atoms
+  </Card>
+  
+  <Card title="Actions" icon="bolt" href="/core/actions">
+    Encapsulate logic and side effects
+  </Card>
+  
+  <Card title="Effects" icon="wand-magic-sparkles" href="/core/effects">
+    Run reactive side effects
+  </Card>
+  
+  <Card title="Extend" icon="puzzle-piece" href="/core/extend">
+    Add capabilities to atoms
+  </Card>
+</CardGroup>

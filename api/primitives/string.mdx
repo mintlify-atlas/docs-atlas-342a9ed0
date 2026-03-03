@@ -1,0 +1,239 @@
+---
+title: reatomString
+description: A primitive atom for managing string state with reset functionality
+---
+
+## Overview
+
+`reatomString` creates an atom that manages string state with a built-in `reset` method to return to the initial value. It supports optional type inference for literal string types.
+
+## Import
+
+```typescript
+import { reatomString } from '@reatom/core'
+```
+
+## Type Signature
+
+```typescript
+type StringAtom<T extends string = string> = Atom<T> & {
+  reset: Action<[], T>
+}
+
+function reatomString(init?: string, name?: string): StringAtom
+function reatomString<T extends string>(init: T, name?: string): StringAtom<T>
+```
+
+## Parameters
+
+<ParamField path="init" type="string" default="''">
+  The initial string value
+</ParamField>
+
+<ParamField path="name" type="string" default="'stringAtom'">
+  Optional name for the atom, useful for debugging
+</ParamField>
+
+## Methods
+
+### reset
+
+Resets the string to its initial value.
+
+**Returns:** `T` - The initial value
+
+```typescript
+const text = reatomString('initial')
+
+text.set('modified')
+console.log(text()) // 'modified'
+
+text.reset()
+console.log(text()) // 'initial'
+```
+
+## Basic Usage
+
+```typescript
+import { reatomString } from '@reatom/core'
+
+// Create a string atom
+const username = reatomString('', 'username')
+
+// Read the value
+console.log(username()) // ''
+
+// Update the value
+username.set('john_doe')
+console.log(username()) // 'john_doe'
+
+// Reset to initial value
+username.reset()
+console.log(username()) // ''
+```
+
+## Advanced Usage
+
+### Form Input Management
+
+```typescript
+const emailInput = reatomString('', 'email')
+const passwordInput = reatomString('', 'password')
+
+function handleEmailChange(value: string) {
+  emailInput.set(value)
+}
+
+function handlePasswordChange(value: string) {
+  passwordInput.set(value)
+}
+
+function resetForm() {
+  emailInput.reset()
+  passwordInput.reset()
+}
+```
+
+### Literal String Types
+
+```typescript
+// Type is inferred as StringAtom<'hello'>
+const greeting = reatomString('hello')
+
+// This preserves the literal type
+type GreetingType = ReturnType<typeof greeting> // 'hello'
+```
+
+### Search Query State
+
+```typescript
+import { computed } from '@reatom/core'
+
+const searchQuery = reatomString('', 'searchQuery')
+
+const hasQuery = computed(() => searchQuery().length > 0)
+
+const trimmedQuery = computed(() => searchQuery().trim())
+
+function updateSearch(query: string) {
+  searchQuery.set(query)
+}
+
+function clearSearch() {
+  searchQuery.reset()
+}
+
+console.log(hasQuery()) // false
+searchQuery.set('  reatom  ')
+console.log(hasQuery()) // true
+console.log(trimmedQuery()) // 'reatom'
+```
+
+### Text Editor State
+
+```typescript
+const editorContent = reatomString('# Welcome\n\nStart typing...', 'editor')
+
+function setText(content: string) {
+  editorContent.set(content)
+}
+
+function appendText(text: string) {
+  editorContent.set(prev => prev + text)
+}
+
+function clearEditor() {
+  editorContent.reset()
+}
+
+// Usage
+setText('New content')
+appendText('\nMore content')
+console.log(editorContent())
+// 'New content\nMore content'
+```
+
+### URL Parameter Management
+
+```typescript
+import { computed } from '@reatom/core'
+
+const searchParam = reatomString('', 'search')
+const sortParam = reatomString('date', 'sort')
+const filterParam = reatomString('all', 'filter')
+
+const queryString = computed(() => {
+  const params = new URLSearchParams()
+  
+  const search = searchParam()
+  const sort = sortParam()
+  const filter = filterParam()
+  
+  if (search) params.set('q', search)
+  if (sort !== 'date') params.set('sort', sort)
+  if (filter !== 'all') params.set('filter', filter)
+  
+  return params.toString()
+})
+
+function resetFilters() {
+  searchParam.reset()
+  sortParam.reset()
+  filterParam.reset()
+}
+```
+
+### Validation with Computed
+
+```typescript
+import { computed } from '@reatom/core'
+
+const email = reatomString('')
+
+const isValidEmail = computed(() => {
+  const value = email()
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+})
+
+const emailError = computed(() => {
+  const value = email()
+  if (value.length === 0) return ''
+  return isValidEmail() ? '' : 'Invalid email address'
+})
+
+email.set('user@example.com')
+console.log(isValidEmail()) // true
+console.log(emailError()) // ''
+
+email.set('invalid')
+console.log(isValidEmail()) // false
+console.log(emailError()) // 'Invalid email address'
+```
+
+### Using with Atom Methods
+
+Since `StringAtom` extends `Atom`, you can use standard atom methods:
+
+```typescript
+const str = reatomString('hello')
+
+// Direct state updates
+str.set('world')
+
+// Functional updates
+str.set(prev => prev.toUpperCase())
+
+// Subscribe to changes
+const unsubscribe = str.subscribe((value) => {
+  console.log('String changed:', value)
+})
+```
+
+## Notes
+
+- The atom preserves literal string types when provided
+- Default initial value is an empty string `''`
+- `reset()` always returns to the value provided during creation
+- All state changes trigger reactive updates
+- Direct assignments will not work; always use `set()` or other atom methods
+- Unlike other primitives, `reatomString` only provides a `reset` method as strings are immutable and don't need specialized mutation methods

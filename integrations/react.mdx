@@ -1,0 +1,406 @@
+---
+title: React Integration
+description: Use Reatom state management with React applications using hooks and components
+---
+
+The `@reatom/react` package provides seamless integration between Reatom and React, offering hooks and utilities for using atoms in React components.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @reatom/react @reatom/core
+```
+
+```bash yarn
+yarn add @reatom/react @reatom/core
+```
+
+```bash pnpm
+pnpm add @reatom/react @reatom/core
+```
+</CodeGroup>
+
+<Note>
+This package requires React 18.2.0 or higher.
+</Note>
+
+## Setup
+
+Wrap your application with the Reatom context provider to make the frame available to all components:
+
+```tsx
+import { createContext } from '@reatom/core'
+import { reatomContext } from '@reatom/react'
+
+const ctx = createContext()
+
+function App() {
+  return (
+    <reatomContext.Provider value={ctx}>
+      <YourApp />
+    </reatomContext.Provider>
+  )
+}
+```
+
+## Core Hooks
+
+### useAtom
+
+The primary hook for working with atoms in React components. It supports multiple use cases:
+
+#### Reading and Writing Atoms
+
+```tsx
+import { atom } from '@reatom/core'
+import { useAtom } from '@reatom/react'
+
+const countAtom = atom(0, 'count')
+
+function Counter() {
+  const [count, setCount] = useAtom(countAtom)
+  
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={() => setCount(count + 1)}>Increment</button>
+      <button onClick={() => setCount((c) => c + 1)}>Increment (updater)</button>
+    </div>
+  )
+}
+```
+
+#### Creating Local State
+
+You can create component-local atoms by passing a primitive value:
+
+```tsx
+function LocalCounter() {
+  const [count, setCount] = useAtom(0)
+  
+  return (
+    <div>
+      <p>Local count: {count}</p>
+      <button onClick={() => setCount((c) => c + 1)}>Increment</button>
+    </div>
+  )
+}
+```
+
+#### Using Computed Values
+
+Pass a function to create a computed atom:
+
+```tsx
+import { atom } from '@reatom/core'
+import { useAtom } from '@reatom/react'
+
+const firstNameAtom = atom('John', 'firstName')
+const lastNameAtom = atom('Doe', 'lastName')
+
+function FullName() {
+  const [fullName] = useAtom(
+    () => `${firstNameAtom()} ${lastNameAtom()}`,
+    [], // dependencies
+    'fullName' // optional name
+  )
+  
+  return <p>Full name: {fullName}</p>
+}
+```
+
+#### API Reference
+
+```tsx
+useAtom(target, deps?, options?)
+```
+
+**Parameters:**
+- `target`: An atom, primitive value, or computed function
+- `deps`: Optional dependency array (like `useMemo`)
+- `options`: Optional configuration
+  - `name`: Debug name for the atom
+  - `subscribe`: Whether to subscribe to changes (default: `true`)
+
+**Returns:**
+- `[state, setState?, atom, frame]`: Tuple containing:
+  - Current state value
+  - Optional setter function (undefined for computed atoms)
+  - The atom instance
+  - The current frame
+
+### useAction
+
+Wrap functions to execute them within the Reatom context:
+
+```tsx
+import { atom } from '@reatom/core'
+import { useAction, useAtom } from '@reatom/react'
+
+const countAtom = atom(0, 'count')
+
+function Counter() {
+  const [count] = useAtom(countAtom)
+  
+  const increment = useAction(() => {
+    countAtom.set(countAtom() + 1)
+  }, [])
+  
+  const add = useAction((amount: number) => {
+    countAtom.set(countAtom() + amount)
+  }, [])
+  
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={increment}>Increment</button>
+      <button onClick={() => add(5)}>Add 5</button>
+    </div>
+  )
+}
+```
+
+**Parameters:**
+- `target`: Function to wrap or existing action
+- `deps`: Dependency array
+- `name`: Optional debug name
+
+**Returns:**
+- Stable callback function that executes within the Reatom context
+
+### useFrame
+
+Get the current Reatom frame from context:
+
+```tsx
+import { useFrame } from '@reatom/react'
+import { wrap } from '@reatom/core'
+
+function MyComponent() {
+  const frame = useFrame()
+  
+  const handleClick = () => {
+    wrap(() => {
+      // Your logic here
+    }, frame)
+  }
+  
+  return <button onClick={handleClick}>Click me</button>
+}
+```
+
+## Advanced Components
+
+### reatomComponent
+
+Create optimized components that automatically track atom dependencies:
+
+```tsx
+import { atom } from '@reatom/core'
+import { reatomComponent } from '@reatom/react'
+
+const countAtom = atom(0, 'count')
+const nameAtom = atom('Alice', 'name')
+
+const UserInfo = reatomComponent<{ id: string }>(({ id }) => {
+  const count = countAtom()
+  const name = nameAtom()
+  
+  return (
+    <div>
+      <p>ID: {id}</p>
+      <p>Name: {name}</p>
+      <p>Count: {count}</p>
+    </div>
+  )
+}, 'UserInfo')
+
+// With dependency tracking on props
+const UserCard = reatomComponent<{ userId: string; role: string }>(
+  ({ userId, role }) => {
+    // Component re-renders when userId changes, but not when role changes
+    return <div>User: {userId}</div>
+  },
+  { deps: ['userId'], name: 'UserCard' }
+)
+```
+
+**Benefits:**
+- Automatic subscription management
+- Fine-grained reactivity
+- Better performance for complex state
+
+### reatomFactoryComponent
+
+Create components with initialization logic that runs only once:
+
+```tsx
+import { atom } from '@reatom/core'
+import { reatomFactoryComponent } from '@reatom/react'
+
+interface TimerProps {
+  initialTime: number
+}
+
+const Timer = reatomFactoryComponent<TimerProps>(
+  (initProps, { name }) => {
+    // This runs once during initialization
+    const timeAtom = atom(initProps.initialTime, `${name}.time`)
+    const intervalAtom = atom<NodeJS.Timeout | null>(null, `${name}.interval`)
+    
+    const start = () => {
+      const id = setInterval(() => {
+        timeAtom.set((t) => t + 1)
+      }, 1000)
+      intervalAtom.set(id)
+    }
+    
+    const stop = () => {
+      const id = intervalAtom()
+      if (id) clearInterval(id)
+      intervalAtom.set(null)
+    }
+    
+    // This is the actual render function
+    return (props) => {
+      const time = timeAtom()
+      
+      return (
+        <div>
+          <p>Time: {time}s</p>
+          <button onClick={start}>Start</button>
+          <button onClick={stop}>Stop</button>
+        </div>
+      )
+    }
+  },
+  'Timer'
+)
+```
+
+## Form Binding
+
+### bindField
+
+Bind form fields to Reatom atoms with validation support:
+
+```tsx
+import { fieldAtom } from '@reatom/core'
+import { bindField } from '@reatom/react'
+import { reatomComponent } from '@reatom/react'
+
+const emailField = fieldAtom('', 'email')
+  .extend((field) => ({
+    validate: () => {
+      const value = field.value()
+      if (!value.includes('@')) {
+        return { error: 'Invalid email' }
+      }
+      return { error: undefined }
+    }
+  }))
+
+const EmailForm = reatomComponent(() => {
+  const emailProps = bindField(emailField)
+  
+  return (
+    <div>
+      <input type="email" {...emailProps} />
+      {emailProps.error && <span>{emailProps.error}</span>}
+    </div>
+  )
+}, 'EmailForm')
+```
+
+The `bindField` helper returns an object with:
+- `value` or `checked`: Current field value
+- `onChange`: Change handler
+- `onBlur`: Blur handler
+- `onFocus`: Focus handler
+- `error`: Validation error message
+
+## Best Practices
+
+<Steps>
+  <Step title="Use useAtom for simple cases">
+    For most use cases, `useAtom` provides the simplest API.
+  </Step>
+  
+  <Step title="Leverage reatomComponent for performance">
+    When dealing with complex state or many atoms, `reatomComponent` offers better performance through automatic dependency tracking.
+  </Step>
+  
+  <Step title="Memoize dependencies properly">
+    When using computed functions with `useAtom`, ensure your dependency array is correct to avoid unnecessary recalculations.
+  </Step>
+  
+  <Step title="Use useAction for stable callbacks">
+    Wrap event handlers with `useAction` to ensure they execute in the correct Reatom context and maintain stable references.
+  </Step>
+</Steps>
+
+## TypeScript Support
+
+The package is fully typed and provides excellent TypeScript support:
+
+```tsx
+import { atom } from '@reatom/core'
+import { useAtom } from '@reatom/react'
+
+interface User {
+  id: string
+  name: string
+  age: number
+}
+
+const userAtom = atom<User | null>(null, 'user')
+
+function UserProfile() {
+  const [user, setUser] = useAtom(userAtom)
+  
+  // TypeScript knows user can be User | null
+  if (!user) return <div>No user</div>
+  
+  return (
+    <div>
+      <p>Name: {user.name}</p>
+      <p>Age: {user.age}</p>
+    </div>
+  )
+}
+```
+
+## Suspense Support
+
+Reatom React integration supports React Suspense for async operations:
+
+```tsx
+import { atom, take } from '@reatom/core'
+import { reatomComponent } from '@reatom/react'
+import { Suspense } from 'react'
+
+const dataAtom = atom(async () => {
+  const response = await fetch('/api/data')
+  return response.json()
+}, 'data')
+
+const DataDisplay = reatomComponent(() => {
+  const data = dataAtom()
+  return <div>{JSON.stringify(data)}</div>
+}, 'DataDisplay')
+
+function App() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <DataDisplay />
+    </Suspense>
+  )
+}
+```
+
+## Next Steps
+
+- Explore [Core Concepts](/core/atom) to learn more about atoms
+- Check out [Asynchttps://github.com/reatom/reatom/tree/main/packages for handling asynchronous state
+- Learn about [Formshttps://github.com/reatom/reatom/tree/main/packages for advanced form management

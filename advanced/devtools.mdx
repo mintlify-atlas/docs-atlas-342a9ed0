@@ -1,0 +1,490 @@
+---
+title: DevTools Guide
+description: Debug and inspect your Reatom applications with powerful developer tools including logging, visual state inspection, and time-travel debugging.
+---
+
+Reatom provides comprehensive developer tools for debugging and inspecting your application state, actions, and dependencies. This guide covers the built-in logger and the DevTools UI.
+
+## Quick Start
+
+### Install DevTools
+
+```bash
+npm install @reatom/devtools
+```
+
+### Basic Logger Setup
+
+The simplest way to debug Reatom apps is using the built-in `connectLogger`:
+
+```ts
+import { connectLogger } from '@reatom/core'
+
+// Enable in development only
+if (import.meta.env.DEV) {
+  connectLogger()
+}
+```
+
+This logs all state changes, action calls, and dependencies to your browser console.
+
+<Tip>
+  Add this early in your application entry point, before any atoms are created or accessed.
+</Tip>
+
+## Using the Logger
+
+### Basic Logging
+
+```ts
+import { atom, action, connectLogger } from '@reatom/core'
+
+// Setup logger
+connectLogger()
+
+const counter = atom(0, 'counter')
+const increment = action(() => {
+  counter.set((v) => v + 1)
+}, 'increment')
+
+increment()
+// Console output:
+// [Reatom] increment
+//   counter: 0 → 1
+```
+
+### Filtering Logs
+
+Filter which atoms and actions appear in logs:
+
+```ts
+import { connectLogger } from '@reatom/core'
+
+connectLogger({
+  // Only log atoms matching this pattern
+  match: /^user|^auth/,
+})
+```
+
+### Excluding Private State
+
+By convention, atoms starting with `_` are private:
+
+```ts
+connectLogger({
+  // Skip atoms/actions starting with underscore
+  match: /^(?!_)/,
+})
+```
+
+<Note>
+  The default filter pattern in DevTools excludes names starting with `_` or `._` to hide internal implementation details.
+</Note>
+
+### Log Levels and Formatting
+
+```ts
+import { connectLogger, log } from '@reatom/core'
+
+// Setup logger first
+connectLogger()
+
+// Use LOG action for custom debugging
+declare global {
+  var LOG: typeof log
+}
+globalThis.LOG = log
+
+// Now use anywhere in your code
+const fetchUser = action(async (id: string) => {
+  LOG('Fetching user:', id)
+  const response = await wrap(fetch(`/api/users/${id}`))
+  const user = await response.json()
+  LOG('User loaded:', user)
+  return user
+}, 'fetchUser')
+```
+
+The logger automatically traces the call stack and shows which action triggered the log.
+
+### State Change Logging
+
+Log only when specific state changes:
+
+```ts
+import { LOG } from './logger'
+
+const Component = reatomComponent(() => {
+  const data = useSomeData()
+  
+  // Logs only when data reference changes
+  const currentData = LOG.state('componentData', data)
+  
+  return <div>{currentData}</div>
+})
+```
+
+## DevTools UI
+
+The `@reatom/devtools` package provides a visual interface for inspecting your Reatom state graph.
+
+### Installation and Setup
+
+<Steps>
+  <Step title="Install the package">
+    ```bash
+    npm install @reatom/devtools
+    ```
+  </Step>
+  
+  <Step title="Create and mount DevTools">
+    ```ts
+    import { createDevtools } from '@reatom/devtools'
+    
+    if (import.meta.env.DEV) {
+      const devtools = createDevtools({
+        initVisibility: true,
+        initSize: 1000,
+      })
+      
+      // Access globally
+      globalThis.REATOM_DEVTOOLS = devtools
+    }
+    ```
+  </Step>
+  
+  <Step title="Access the UI">
+    The DevTools UI automatically appears in the bottom-right corner of your browser window (in development mode).
+  </Step>
+</Steps>
+
+### DevTools Configuration
+
+```ts
+import { createDevtools } from '@reatom/devtools'
+
+const devtools = createDevtools({
+  // Show DevTools panel on load
+  initVisibility: true, // default: true
+  
+  // Maximum number of log entries to keep
+  initSize: 1000, // default: 1000
+  
+  // Custom color coding for different atoms
+  getColor: (frame) => {
+    if (frame.atom.name.startsWith('user')) return '#4CAF50'
+    if (frame.atom.name.startsWith('api')) return '#2196F3'
+    return '#9E9E9E'
+  },
+  
+  // Custom name separator for hierarchical view
+  separator: /\./, // default: /\.|
+  
+  // Prefix for private atoms to hide
+  privatePrefix: '_', // default: '_'
+})
+```
+
+### DevTools API
+
+The DevTools instance provides programmatic control:
+
+```ts
+// Show/hide the panel
+devtools.show()
+devtools.hide()
+
+// Log custom messages
+devtools.log('Custom event', { foo: 'bar' })
+
+// Create inspectable state
+const inspectableValue = devtools.state('myValue', initialState)
+
+// Update from DevTools UI triggers this subscription
+inspectableValue.subscribe((newValue) => {
+  console.log('Value edited in DevTools:', newValue)
+})
+```
+
+## DevTools Features
+
+### Logs View
+
+The main logs panel shows:
+
+- **Action calls** with parameters
+- **State changes** with before/after values
+- **Dependency chains** showing what triggered what
+- **Timestamps** for performance analysis
+- **Stack traces** for debugging
+
+#### Filter Actions
+
+Create custom filters to focus on specific parts of your state:
+
+- **Filter mode**: Show only matching logs
+- **Hide mode**: Hide matching logs
+- **Exclude mode**: Remove from collection entirely (performance optimization)
+- **Highlight mode**: Color-code matching logs
+
+Filters support both regex patterns and value search (searches stringified payloads).
+
+<Tip>
+  Save frequently-used filters to quickly switch between different debugging contexts.
+</Tip>
+
+#### Log Controls
+
+- **Clear logs**: Remove all collected logs
+- **Clear lines**: Remove cause chain highlight lines
+- **Recording**: Pause/resume log collection
+- **Preview**: Toggle inline payload preview
+- **Time**: Toggle timestamp display
+- **Snap**: Create snapshot of current visible logs
+- **Size**: Adjust log collection limit
+
+### States View
+
+Hierarchical tree view of all atoms in your application:
+
+- Organized by name separator (e.g., `user.profile.name`)
+- Excludes actions and private atoms by default
+- Real-time updates via `proto.updateHooks`
+- "Reload" button to force snapshot refresh
+- "Log" button to output state to console
+
+<Note>
+  The states view uses `structuredClone` when possible, falling back to live data references for non-cloneable objects.
+</Note>
+
+### Inspector
+
+Click any state value to open the inspector panel:
+
+#### Inspector Actions
+
+- **Edit**: Open JSON form to modify state (uses `JSON.parse`)
+- **History**: View diff between current and previous states (max 10 entries)
+- **Log to console**: Output current value to browser console
+- **Copy JSON**: Copy stringified value to clipboard
+- **Download**: Save value as JSON file
+- **Convert to plain JSON**: Remove Reatom atoms from data structure
+
+<Warning>
+  State edits from the inspector go through a special update action. They will trigger all normal subscribers and effects.
+</Warning>
+
+### Cause Chain Tracing
+
+Click any log entry to highlight its cause chain:
+
+- **Visual lines** connect causes to effects
+- Shows **dependencies** that triggered updates
+- Helps understand **why** state changed
+- Traces through **async boundaries**
+
+```ts
+// Example cause chain:
+const searchQuery = atom('', 'searchQuery')
+const debouncedQuery = computed(/* debounce logic */, 'debouncedQuery')
+const searchResults = computed(async () => {
+  const query = debouncedQuery()
+  return await fetchResults(query)
+}, 'searchResults').extend(withAsyncData())
+
+// Clicking searchResults in DevTools shows:
+// searchQuery → debouncedQuery → searchResults.pending → searchResults.data
+```
+
+### Time Travel Debugging
+
+Use snapshots to capture and restore state:
+
+```ts
+// Create snapshot
+const snapshot = devtools.snap()
+
+// Later: review historical state
+// (Manual implementation - DevTools provides UI)
+```
+
+## Integration with Browser DevTools
+
+### Chrome/Edge DevTools Extension
+
+Reatom integrates with browser DevTools through the `@reatom/devtools` package:
+
+1. The DevTools UI renders in a Shadow DOM container with isolated styles
+2. Uses ObservableHQ Inspector for rich data visualization
+3. Includes jsondiffpatch for visual state diffs
+
+### Console Integration
+
+```ts
+import { connectLogger, log } from '@reatom/core'
+
+// Setup
+connectLogger()
+globalThis.LOG = log
+
+// Now all Reatom updates appear in console
+const counter = atom(0, 'counter')
+counter.set(5)
+// Console: [Reatom] counter: 0 → 5
+
+// Custom logs with stack traces
+LOG('Debug checkpoint', { value: counter() })
+// Console: [Reatom] LOG
+//   "Debug checkpoint" { value: 5 }
+//   (shows call stack)
+```
+
+## Persistence
+
+DevTools settings are saved to localStorage:
+
+- **Filter configurations** (with version key)
+- **View preferences** (logs vs. states)
+- **Panel visibility**
+- **Size settings**
+
+<Note>
+  Settings use Zod for validation to handle version migrations safely.
+</Note>
+
+## Performance Considerations
+
+### Production Builds
+
+Always guard DevTools and logging with environment checks:
+
+```ts
+if (import.meta.env.DEV) {
+  const { createDevtools } = await import('@reatom/devtools')
+  const { connectLogger } = await import('@reatom/core')
+  
+  createDevtools()
+  connectLogger()
+}
+```
+
+This ensures DevTools code is tree-shaken from production bundles.
+
+### Log Collection Limits
+
+Use the `initSize` option to prevent memory issues:
+
+```ts
+createDevtools({
+  initSize: 500, // Fewer logs for memory-constrained environments
+})
+```
+
+The DevTools automatically trim old logs when the limit is reached.
+
+### Exclude Filters
+
+Use "exclude" mode filters for high-frequency atoms:
+
+```ts
+// Prevent logging high-frequency updates
+devtools.addFilter({
+  pattern: /_internal|scroll/,
+  mode: 'exclude', // Drops logs before insertion
+})
+```
+
+## Debugging Recipes
+
+### Find Why State Changed
+
+<Steps>
+  <Step title="Open DevTools and find the atom">
+    Look in the Logs view for the unexpected state change.
+  </Step>
+  
+  <Step title="Click the log entry">
+    This highlights the cause chain showing all dependencies that triggered the update.
+  </Step>
+  
+  <Step title="Follow the chain backwards">
+    Trace from effect back to cause to find the root trigger.
+  </Step>
+</Steps>
+
+### Debug Async Operations
+
+Enable stack traces to see async call chains:
+
+```ts
+import { getStackTrace } from '@reatom/core'
+
+const fetchData = action(async () => {
+  LOG('Stack trace:', getStackTrace())
+  const data = await wrap(fetch('/api/data'))
+  LOG('Data loaded')
+  return data
+}, 'fetchData')
+```
+
+The logger shows the complete async execution path.
+
+### Inspect Complex State
+
+Use the inspector's "Convert to plain JSON" feature to remove Reatom wrappers:
+
+1. Click the state value in DevTools
+2. Click "Convert to plain JSON"
+3. Copy or download the plain object
+
+### Track State Over Time
+
+Use history diffs to see how state evolved:
+
+1. Click a state value in the inspector
+2. Click "History" button
+3. Review visual diffs showing changes over time
+
+<Tip>
+  History tracking uses reference equality. In-place mutations won't appear in diffs - always create new objects/arrays.
+</Tip>
+
+## Best Practices
+
+1. **Name everything** - Give all atoms and actions descriptive names for better logs
+2. **Use namespacing** - Structure names like `user.profile.email` for hierarchical views
+3. **Filter aggressively** - Hide internal implementation details with filters
+4. **Check logs regularly** - Catch unexpected updates early in development
+5. **Use LOG liberally** - Add logging to complex operations while developing
+6. **Guard production** - Always wrap DevTools in environment checks
+
+## Troubleshooting
+
+### DevTools Not Appearing
+
+Check that:
+- DevTools is created before atoms are accessed
+- `initVisibility` is `true`
+- You're in development mode
+- No console errors from DevTools initialization
+
+### Missing Logs
+
+Ensure:
+- `connectLogger()` is called before atom updates
+- Your filters aren't hiding the logs
+- Recording is enabled (check the "recording" toggle)
+
+### Performance Issues
+
+If DevTools slows your app:
+- Reduce `initSize` limit
+- Add exclude filters for high-frequency atoms
+- Disable recording when not actively debugging
+- Close the DevTools panel (it still collects but renders less)
+
+## Further Reading
+
+- [Performance Guide](/advanced/performance) - Optimize your Reatom app
+- [Logger API Reference](https://www.reatom.dev/reference/methods/connectLogger) - Complete logger options
+- [DevTools Source](https://github.com/reatom/reatom/tree/v1000/packages/devtools) - Implementation details

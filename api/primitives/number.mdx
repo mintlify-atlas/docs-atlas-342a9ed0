@@ -1,0 +1,266 @@
+---
+title: reatomNumber
+description: A primitive atom for managing numeric state with convenient increment, decrement, and random operations
+---
+
+## Overview
+
+`reatomNumber` creates an atom that manages numeric state with built-in methods for common number operations like `increment`, `decrement`, `random`, and `reset`.
+
+## Import
+
+```typescript
+import { reatomNumber } from '@reatom/core'
+```
+
+## Type Signature
+
+```typescript
+interface NumberAtom extends Atom<number> {
+  increment: Action<[by?: number], number>
+  decrement: Action<[by?: number], number>
+  random: Action<[min?: number, max?: number], number>
+  reset: Action<[], number>
+}
+
+function reatomNumber(
+  initState?: number,
+  name?: string
+): NumberAtom
+```
+
+## Parameters
+
+<ParamField path="initState" type="number" default="0">
+  The initial numeric value
+</ParamField>
+
+<ParamField path="name" type="string" default="'numberAtom'">
+  Optional name for the atom, useful for debugging
+</ParamField>
+
+## Methods
+
+### increment
+
+Increases the number by the specified amount.
+
+<ParamField path="by" type="number" default="1">
+  The amount to increase by
+</ParamField>
+
+**Returns:** `number` - The new value
+
+```typescript
+const counter = reatomNumber(0)
+
+counter.increment()
+console.log(counter()) // 1
+
+counter.increment(5)
+console.log(counter()) // 6
+```
+
+### decrement
+
+Decreases the number by the specified amount.
+
+<ParamField path="by" type="number" default="1">
+  The amount to decrease by
+</ParamField>
+
+**Returns:** `number` - The new value
+
+```typescript
+const counter = reatomNumber(10)
+
+counter.decrement()
+console.log(counter()) // 9
+
+counter.decrement(3)
+console.log(counter()) // 6
+```
+
+### random
+
+Sets the number to a random value within the specified range.
+
+<ParamField path="min" type="number" optional>
+  The minimum value (inclusive). If not specified, uses a default minimum
+</ParamField>
+
+<ParamField path="max" type="number" optional>
+  The maximum value (exclusive). If not specified, uses a default maximum
+</ParamField>
+
+**Returns:** `number` - The new random value
+
+```typescript
+const randomNumber = reatomNumber()
+
+randomNumber.random(1, 10)
+console.log(randomNumber()) // Random number between 1 and 10
+
+randomNumber.random(0, 100)
+console.log(randomNumber()) // Random number between 0 and 100
+```
+
+### reset
+
+Resets the number to its initial value.
+
+**Returns:** `number` - The initial value
+
+```typescript
+const counter = reatomNumber(5)
+
+counter.increment(10)
+console.log(counter()) // 15
+
+counter.reset()
+console.log(counter()) // 5
+```
+
+## Basic Usage
+
+```typescript
+import { reatomNumber } from '@reatom/core'
+
+// Create a number atom
+const score = reatomNumber(0, 'score')
+
+// Read the value
+console.log(score()) // 0
+
+// Increment
+score.increment()
+console.log(score()) // 1
+
+// Increment by custom amount
+score.increment(10)
+console.log(score()) // 11
+
+// Decrement
+score.decrement(5)
+console.log(score()) // 6
+
+// Reset to initial value
+score.reset()
+console.log(score()) // 0
+```
+
+## Advanced Usage
+
+### Counter with Min/Max Bounds
+
+```typescript
+import { reatomNumber } from '@reatom/core'
+import { withComputed } from '@reatom/core'
+
+const counter = reatomNumber(0).extend(target => ({
+  incrementSafe(max: number) {
+    const current = target()
+    if (current < max) {
+      target.increment()
+    }
+  },
+  decrementSafe(min: number) {
+    const current = target()
+    if (current > min) {
+      target.decrement()
+    }
+  }
+}))
+
+counter.incrementSafe(10) // Only increments if below 10
+counter.decrementSafe(0)  // Only decrements if above 0
+```
+
+### Score System
+
+```typescript
+const playerScore = reatomNumber(0, 'playerScore')
+
+function addPoints(points: number) {
+  playerScore.increment(points)
+}
+
+function subtractPoints(points: number) {
+  playerScore.decrement(points)
+}
+
+function bonus() {
+  playerScore.increment(100)
+}
+
+function gameOver() {
+  const finalScore = playerScore()
+  console.log('Final score:', finalScore)
+  playerScore.reset()
+}
+```
+
+### Progress Tracking
+
+```typescript
+import { computed } from '@reatom/core'
+
+const progress = reatomNumber(0)
+const total = 100
+
+const percentage = computed(() => {
+  return (progress() / total) * 100
+})
+
+const isComplete = computed(() => progress() >= total)
+
+progress.increment(25)
+console.log(percentage()) // 25
+console.log(isComplete()) // false
+
+progress.increment(75)
+console.log(percentage()) // 100
+console.log(isComplete()) // true
+```
+
+### Random Number Generator
+
+```typescript
+const dice = reatomNumber(1)
+
+function rollDice() {
+  dice.random(1, 7) // 1-6 (7 is exclusive)
+  return dice()
+}
+
+console.log(rollDice()) // Random number 1-6
+console.log(rollDice()) // Different random number 1-6
+```
+
+### Using with Atom Methods
+
+Since `NumberAtom` extends `Atom`, you can use standard atom methods:
+
+```typescript
+const num = reatomNumber(5)
+
+// Direct state updates
+num.set(10)
+
+// Functional updates
+num.set(prev => prev * 2)
+
+// Subscribe to changes
+const unsubscribe = num.subscribe((value) => {
+  console.log('Number changed:', value)
+})
+```
+
+## Notes
+
+- Default increment/decrement amount is 1
+- All methods return the new value after the operation
+- The `random` method uses a utility function that handles the range calculation
+- `reset` always returns to the initial value provided during creation
+- All operations trigger reactive updates
+- Direct assignments like `numberAtom() = 5` will not work; use `set()` or the provided methods

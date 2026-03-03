@@ -1,0 +1,484 @@
+---
+title: 'reatomRoute'
+description: 'Create reactive routes with URL matching, navigation, data loading, and component rendering'
+---
+
+## Overview
+
+`reatomRoute` creates a reactive route atom that automatically syncs with the browser URL. Routes provide:
+- URL pattern matching with parameters
+- Type-safe navigation
+- Schema validation for parameters
+- Async data loading with automatic abort
+- Component rendering with outlet composition
+- Hierarchical route nesting
+
+## Type Signature
+
+```typescript
+function reatomRoute<
+  Path extends string = '',
+  ParamsInput = PathParams<Path>,
+  SearchInput = {},
+  ParamsOutput = ParamsInput,
+  SearchOutput = SearchInput,
+>(
+  pathOrOptions: string | RouteOptions<Path, ParamsInput, SearchInput, ParamsOutput, SearchOutput>,
+  name?: string
+): RouteAtom<Path, ParamsOutput, SearchOutput>
+```
+
+## Parameters
+
+<ParamField path="pathOrOptions" type="string | RouteOptions" required>
+  Either a path pattern string (e.g., `'users/:userId'`) or a configuration object
+
+  <Expandable title="RouteOptions properties">
+    <ParamField path="path" type="string">
+      Path pattern with `:paramName` for required parameters and `:paramName?` for optional ones.
+      Examples: `'users'`, `'users/:userId'`, `'posts/:postId?'`
+    </ParamField>
+
+    <ParamField path="params" type="StandardSchemaV1 | Function">
+      Schema or function to validate and transform path parameters.
+      URL params are always strings, so schemas should accept strings and transform to desired types.
+    </ParamField>
+
+    <ParamField path="search" type="StandardSchemaV1">
+      Schema to validate and transform search/query parameters.
+      All search parameters should be optional in the schema.
+    </ParamField>
+
+    <ParamField path="loader" type="(params) => Promise<Payload>">
+      Async function to load data when route becomes active.
+      Receives validated parameters (path + search combined).
+      Automatically aborted when navigating away.
+    </ParamField>
+
+    <ParamField path="render" type="(self) => RouteChild">
+      Function to render route component. Receives the route atom with all properties.
+      Used for framework-agnostic component composition.
+    </ParamField>
+
+    <ParamField path="exactRender" type="boolean" default="false">
+      Only render when URL exactly matches this route (not partial matches)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="name" type="string">
+  Debug name for the route atom
+</ParamField>
+
+## Return Value
+
+<ResponseField name="RouteAtom" type="RouteAtom<Path, ParamsOutput, SearchOutput>">
+  Route atom that returns validated params when matched, or `null` when not matched.
+
+  <Expandable title="properties">
+    <ResponseField name="go" type="Action<[params?, replace?], URL>">
+      Navigate to this route with given parameters.
+      - `params` - Route parameters (path + search)
+      - `replace` - If true, replaces current history entry
+    </ResponseField>
+
+    <ResponseField name="path" type="(params?) => string">
+      Build URL path string without navigating. Useful for creating links.
+    </ResponseField>
+
+    <ResponseField name="loader" type="RouteLoader<Params, Payload>">
+      Async data loader with:
+      - `loader()` - Promise that resolves to loaded data
+      - `loader.data()` - Last successful result
+      - `loader.error()` - Last error
+      - `loader.pending()` - Number of pending loads
+      - `loader.ready()` - Boolean indicating data is ready
+      - `loader.retry()` - Retry failed load
+    </ResponseField>
+
+    <ResponseField name="match" type="Computed<boolean>">
+      Whether current URL matches this route (partial or exact)
+    </ResponseField>
+
+    <ResponseField name="exact" type="Computed<boolean>">
+      Whether current URL exactly matches this route
+    </ResponseField>
+
+    <ResponseField name="pattern" type="Path">
+      The path pattern string for this route
+    </ResponseField>
+
+    <ResponseField name="routes" type="Record<string, RouteAtom>">
+      Registry of all child routes created from this route
+    </ResponseField>
+
+    <ResponseField name="outlet" type="Computed<RouteChild[]>">
+      Array of rendered child route components
+    </ResponseField>
+
+    <ResponseField name="render" type="Computed<RouteChild | null>">
+      Rendered component for this route, or null
+    </ResponseField>
+
+    <ResponseField name="reatomRoute" type="Function">
+      Create a child route by appending a path pattern
+    </ResponseField>
+
+    <ResponseField name="parent" type="RouteAtom | null">
+      Parent route in the hierarchy
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Routes
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+
+const homeRoute = reatomRoute('')
+const aboutRoute = reatomRoute('about')
+const userRoute = reatomRoute('users/:userId')
+
+// Navigate
+homeRoute.go()
+aboutRoute.go()
+userRoute.go({ userId: '123' })
+
+// Check if matched
+console.log(homeRoute()) // {} when at /
+console.log(userRoute()) // { userId: '123' } when at /users/123
+console.log(userRoute()) // null when not matched
+
+// Build URLs
+console.log(aboutRoute.path()) // '/about'
+console.log(userRoute.path({ userId: '456' })) // '/users/456'
+```
+
+### Optional Parameters
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+
+const postRoute = reatomRoute('posts/:postId?')
+
+// Both paths match
+postRoute.go() // /posts
+postRoute.go({ postId: 'abc' }) // /posts/abc
+
+console.log(postRoute()) // {} at /posts
+console.log(postRoute()) // { postId: 'abc' } at /posts/abc
+```
+
+### Nested Routes
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+
+const apiRoute = reatomRoute('api')
+const productsRoute = apiRoute.reatomRoute('products')
+const productRoute = productsRoute.reatomRoute(':productId')
+const settingsRoute = productRoute.reatomRoute('settings')
+
+// Navigate to nested route
+settingsRoute.go({ productId: 'abc' })
+// URL: /api/products/abc/settings
+
+// Check matches at each level
+console.log(apiRoute()) // {}
+console.log(productsRoute()) // {}
+console.log(productRoute()) // { productId: 'abc' }
+console.log(settingsRoute()) // { productId: 'abc' }
+
+// Check exact matches
+console.log(apiRoute.exact()) // false
+console.log(settingsRoute.exact()) // true
+```
+
+### Parameter Validation
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+import { z } from 'zod'
+
+const issueRoute = reatomRoute({
+  path: 'issues/:issueId',
+  params: z.object({
+    issueId: z.string().regex(/^\d+$/).transform(Number),
+  }),
+})
+
+// Type-safe navigation
+issueRoute.go({ issueId: '123' })
+
+// Params are validated and transformed
+console.log(issueRoute()) // { issueId: 123 } (number, not string)
+
+// Invalid params are rejected
+issueRoute.go({ issueId: 'abc' }) // Throws error
+```
+
+### Search Parameters
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+import { z } from 'zod'
+
+const searchRoute = reatomRoute({
+  path: 'search',
+  search: z.object({
+    q: z.string().optional(),
+    page: z.string().transform(Number).default('1'),
+    sort: z.enum(['asc', 'desc']).optional(),
+  }),
+})
+
+searchRoute.go({ q: 'reatom', page: 2, sort: 'desc' })
+// URL: /search?q=reatom&page=2&sort=desc
+
+console.log(searchRoute())
+// { q: 'reatom', page: 2, sort: 'desc' }
+```
+
+### Data Loading
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+import { z } from 'zod'
+
+const userRoute = reatomRoute({
+  path: 'users/:userId',
+  params: z.object({
+    userId: z.string().regex(/^\d+$/).transform(Number),
+  }),
+  async loader({ userId }) {
+    const response = await fetch(`/api/users/${userId}`)
+    return response.json()
+  },
+})
+
+userRoute.go({ userId: '123' })
+
+// Access loader state
+const user = await wrap(userRoute.loader())
+console.log(userRoute.loader.data()) // User data
+console.log(userRoute.loader.ready()) // true when loaded
+console.log(userRoute.loader.error()) // Error if failed
+
+// Loader automatically aborts when navigating away
+userRoute.go({ userId: '456' }) // Previous load is aborted
+```
+
+### Nested Loaders
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+
+const organizationRoute = reatomRoute({
+  path: 'orgs/:orgId',
+  async loader({ orgId }) {
+    const org = await fetch(`/api/orgs/${orgId}`).then(r => r.json())
+    return org
+  },
+})
+
+const projectRoute = organizationRoute.reatomRoute({
+  path: 'projects/:projectId',
+  async loader({ orgId, projectId }) {
+    // Parent loader waits first
+    const project = await fetch(
+      `/api/orgs/${orgId}/projects/${projectId}`
+    ).then(r => r.json())
+    return project
+  },
+})
+
+// Parent loader executes before child
+projectRoute.go({ orgId: '1', projectId: '2' })
+// 1. organizationRoute.loader executes
+// 2. projectRoute.loader executes after parent completes
+```
+
+### Search-Only Routes
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+import { z } from 'zod'
+
+// Route with no path - only manages search params
+const dialogRoute = reatomRoute({
+  search: z.object({
+    dialog: z.enum(['login', 'signup']).optional(),
+  }),
+})
+
+// Preserves current pathname, only updates search
+urlAtom.go('/profile/123')
+dialogRoute.go({ dialog: 'login' })
+// URL: /profile/123?dialog=login
+
+urlAtom.go('/settings')
+dialogRoute.go({ dialog: 'signup' })
+// URL: /settings?dialog=signup
+```
+
+### Component Rendering
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+import { html } from 'lit'
+
+const layoutRoute = reatomRoute({
+  render(self) {
+    // self() returns params when matched
+    // self.outlet() returns child route components
+    return html`
+      <div>
+        <header>My App</header>
+        <main>${self.outlet().map((child) => child)}</main>
+      </div>
+    `
+  },
+})
+
+const homeRoute = layoutRoute.reatomRoute({
+  path: 'home',
+  render() {
+    return html`<h1>Home Page</h1>`
+  },
+})
+
+const aboutRoute = layoutRoute.reatomRoute({
+  path: 'about',
+  render() {
+    return html`<h1>About Page</h1>`
+  },
+})
+
+// Access rendered components
+console.log(layoutRoute.render()) // Layout component
+console.log(layoutRoute.outlet()) // [homeRoute or aboutRoute component]
+```
+
+### Exact Rendering
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+
+const projectRoute = reatomRoute({
+  path: 'project',
+  exactRender: true,
+  render() {
+    return html`<h1>Project Overview</h1>`
+  },
+})
+
+const settingsRoute = projectRoute.reatomRoute({
+  path: 'settings',
+  render() {
+    return html`<h1>Project Settings</h1>`
+  },
+})
+
+// At /project
+console.log(projectRoute.render()) // Project overview component
+
+// At /project/settings
+console.log(projectRoute.render()) // null (not exact match)
+console.log(settingsRoute.render()) // Settings component
+```
+
+### Callback-Based Params
+
+```typescript
+import { reatomRoute } from '@reatom/framework'
+
+// Custom validation logic
+const dialogRoute = reatomRoute({
+  params: ({ open }: { open: boolean }) => ({ open }),
+})
+
+const profileRoute = dialogRoute.reatomRoute({
+  params: ({ profileOf }: { profileOf: string }) =>
+    profileOf ? { profileOf } : null,
+})
+
+profileRoute.go({ open: true, profileOf: 'user123' })
+
+console.log(dialogRoute()) // { open: true }
+console.log(profileRoute()) // { profileOf: 'user123' }
+
+profileRoute.go({ open: true, profileOf: '' })
+console.log(profileRoute()) // null (validation failed)
+```
+
+### 404 Detection
+
+```typescript
+import { reatomRoute, is404 } from '@reatom/framework'
+
+const homeRoute = reatomRoute('')
+const aboutRoute = reatomRoute('about')
+
+// Navigate to unknown path
+urlAtom.go('/unknown')
+
+console.log(is404()) // true
+console.log(homeRoute()) // null
+console.log(aboutRoute()) // null
+
+// Navigate to known path
+homeRoute.go()
+console.log(is404()) // false
+```
+
+### Loader Pending State
+
+```typescript
+import { reatomRoute, isSomeLoaderPending } from '@reatom/framework'
+
+const route1 = reatomRoute({
+  path: 'route1',
+  async loader() {
+    await sleep(1000)
+    return {}
+  },
+})
+
+const route2 = reatomRoute({
+  path: 'route2',
+  async loader() {
+    await sleep(500)
+    return {}
+  },
+})
+
+route1.go()
+console.log(isSomeLoaderPending()) // true
+
+await wrap(route1.loader())
+console.log(isSomeLoaderPending()) // false
+```
+
+## Type Utilities
+
+### PathParams
+
+Extract parameter types from a path pattern:
+
+```typescript
+import { type PathParams } from '@reatom/framework'
+
+type Params1 = PathParams<'users/:userId/posts/:postId?'>
+// { userId: string; postId?: string }
+
+type Params2 = PathParams<':id'>
+// { id: string }
+```
+
+## Related
+
+- [searchParamsAtom](/api/routing/search-params) - Global search parameters atom
+- [urlAtom](/api/routing/url-atom) - Global URL atom
+- [Standard Schema](https://standardschema.dev) - Schema validation specification
